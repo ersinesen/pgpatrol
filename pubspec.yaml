@@ -1,0 +1,23 @@
+name: postgresql_monitor
+description: A minimalist, Apple-inspired PostgreSQL monitoring application built with Flutter and Dart.
+publish_to: 'none' 
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.5
+  postgres: ^2.6.1
+  syncfusion_flutter_charts: ^22.1.34
+  intl: ^0.18.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.1
+
+flutter:
+  uses-material-design: true
