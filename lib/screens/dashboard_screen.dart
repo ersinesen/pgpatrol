@@ -23,11 +23,18 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final DatabaseService _databaseService = DatabaseService();
+  late final ApiDatabaseService _databaseService;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Get the database service from the provider
+    _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+  }
   
   @override
   void dispose() {
-    _databaseService.dispose();
+    // Note: we don't call dispose on the database service since it's managed by the provider
     super.dispose();
   }
 

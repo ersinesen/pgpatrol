@@ -1,308 +1,352 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
+import '../models/server_connection.dart';
 
-/// Service for communicating with the PostgreSQL database through API
-class DatabaseService {
-  // API base URL - Replit specific since both frontend and backend run on the same domain
-  final String _baseUrl = '/api';
+/// DatabaseService implementation that uses our Node.js API instead of
+/// connecting directly to PostgreSQL.
+class ApiDatabaseService {
+  // Base URL for API requests
+  final String baseUrl;
   
-  // Stream controllers
+  // Flag to track if the service is connected to the backend
+  bool _isConnected = false;
+  Timer? _statsRefreshTimer;
+  Timer? _resourceStatsTimer;
+  
+  // Stream controllers for real-time updates
   final _connectionStatusController = StreamController<ConnectionStatus>.broadcast();
   final _databaseStatsController = StreamController<DatabaseStats>.broadcast();
-  final _resourceStatsController = StreamController<ResourceStats>.broadcast();
   final _queryLogsController = StreamController<List<QueryLog>>.broadcast();
+  final _resourceStatsController = StreamController<ResourceStats>.broadcast();
   
-  // Current state
-  ConnectionStatus _connectionStatus = ConnectionStatus.initial();
-  DatabaseStats _databaseStats = DatabaseStats.initial();
-  ResourceStats _resourceStats = ResourceStats.initial();
-  List<QueryLog> _queryLogs = [];
-  
-  // Stream getters
+  // Streams
   Stream<ConnectionStatus> get connectionStatus => _connectionStatusController.stream;
   Stream<DatabaseStats> get databaseStats => _databaseStatsController.stream;
-  Stream<ResourceStats> get resourceStats => _resourceStatsController.stream;
   Stream<List<QueryLog>> get queryLogs => _queryLogsController.stream;
-  Stream<List<QueryLog>> get queryLogsStream => _queryLogsController.stream;
-  Stream<ResourceStats> get resourceStatsStream => _resourceStatsController.stream;
-  Stream<List<QueryPerformance>> get queryPerformanceStream => Stream.value([]);  // Placeholder
+  Stream<ResourceStats> get resourceStats => _resourceStatsController.stream;
   
-  // Timer for auto-refresh
-  Timer? _refreshTimer;
+  // Latest data
+  ConnectionStatus _latestConnectionStatus = ConnectionStatus.initial();
+  DatabaseStats _latestDatabaseStats = DatabaseStats.initial();
+  List<QueryLog> _latestQueryLogs = [];
+  ResourceStats _latestResourceStats = ResourceStats.initial();
   
-  DatabaseService() {
-    // Initial fetch
-    _checkConnection();
-    _fetchDatabaseStats();
-    _fetchResourceStats();
-    _fetchQueryLogs();
+  // Constructor
+  ApiDatabaseService({
+    this.baseUrl = '/api', // Default to relative URL for same-origin requests
+  }) {
+    // Initialize
+    _initialize();
+  }
+  
+  void _initialize() async {
+    // Initial check of connection status
+    await _checkConnectionStatus();
     
-    // Setup auto-refresh timer (every 10 seconds)
-    _refreshTimer = Timer.periodic(Duration(seconds: 10), (_) {
-      _checkConnection();
-      _fetchDatabaseStats();
-      _fetchResourceStats();
-      _fetchQueryLogs();
-    });
+    // Start periodic updates if connection is successful
+    if (_isConnected) {
+      _startPeriodicUpdates();
+    }
   }
   
-  // Dispose method to clean up resources
-  void dispose() {
-    _refreshTimer?.cancel();
-    _connectionStatusController.close();
-    _databaseStatsController.close();
-    _resourceStatsController.close();
-    _queryLogsController.close();
-  }
-  
-  // Connection check
-  Future<void> _checkConnection() async {
+  Future<void> _checkConnectionStatus() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/connection'));
+      final response = await http.get(Uri.parse('$baseUrl/connection'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _connectionStatus = ConnectionStatus(
-          isConnected: data['status'] == 'connected',
-          connectionName: 'PostgreSQL',
-          serverVersion: data['version'] ?? 'Unknown',
-          statusMessage: data['status'] == 'connected' ? 'Connected' : 'Disconnected',
-          activeConnections: 1,  // Placeholder
-          maxConnections: 100,   // Placeholder
-          lastChecked: DateTime.now(),
+        
+        _isConnected = data['status'] == 'connected';
+        
+        // Extract additional connection info if available
+        final serverVersion = data['version'] ?? 'Unknown';
+        
+        _updateConnectionStatus(
+          ConnectionStatus(
+            isConnected: _isConnected,
+            serverVersion: serverVersion,
+            activeConnections: 0, // Will be updated with database stats
+            maxConnections: 100, // Default value
+            lastChecked: DateTime.now(),
+            statusMessage: _isConnected 
+              ? 'Connected to PostgreSQL server' 
+              : 'Failed to connect to server',
+            connectionName: 'API Connection',
+          ),
         );
+        
+        // If connected, fetch initial data
+        if (_isConnected) {
+          await _fetchDatabaseStats();
+          await _fetchResourceStats();
+          await _fetchQueryLogs();
+          _startPeriodicUpdates();
+        }
       } else {
-        _connectionStatus = ConnectionStatus(
-          isConnected: false,
-          connectionName: 'PostgreSQL',
-          serverVersion: 'Unknown',
-          statusMessage: 'Connection failed: ${response.statusCode}',
-          activeConnections: 0,
-          maxConnections: 0,
-          lastChecked: DateTime.now(),
+        _isConnected = false;
+        _updateConnectionStatus(
+          ConnectionStatus.initial().copyWith(
+            statusMessage: 'API error: ${response.statusCode}',
+          ),
         );
       }
     } catch (e) {
-      _connectionStatus = ConnectionStatus(
-        isConnected: false,
-        connectionName: 'PostgreSQL',
-        serverVersion: 'Unknown',
-        statusMessage: 'Connection error: $e',
-        activeConnections: 0,
-        maxConnections: 0,
-        lastChecked: DateTime.now(),
+      _isConnected = false;
+      _updateConnectionStatus(
+        ConnectionStatus.initial().copyWith(
+          statusMessage: 'Connection error: ${e.toString()}',
+        ),
       );
     }
-    
-    _connectionStatusController.add(_connectionStatus);
   }
   
-  // Fetch database statistics
-  Future<void> _fetchDatabaseStats() async {
-    if (!_connectionStatus.isConnected) return;
+  void _startPeriodicUpdates() {
+    // Stop existing timers if running
+    _statsRefreshTimer?.cancel();
+    _resourceStatsTimer?.cancel();
     
+    // Fetch stats every 10 seconds
+    _statsRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (_isConnected) {
+        await _fetchDatabaseStats();
+        await _fetchQueryLogs();
+      } else {
+        await _checkConnectionStatus();
+      }
+    });
+    
+    // Fetch resource stats every 2 seconds
+    _resourceStatsTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (_isConnected) {
+        await _fetchResourceStats();
+      }
+    });
+  }
+  
+  Future<void> _fetchDatabaseStats() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/stats'));
+      final response = await http.get(Uri.parse('$baseUrl/stats'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
-        // Parse size string (e.g., "10.5 MB" to double)
-        double dbSize = 0;
-        final sizeStr = data['size'] as String;
-        if (sizeStr.contains('MB')) {
-          dbSize = double.parse(sizeStr.replaceAll(' MB', ''));
-        } else if (sizeStr.contains('GB')) {
-          dbSize = double.parse(sizeStr.replaceAll(' GB', '')) * 1024;
-        } else if (sizeStr.contains('KB')) {
-          dbSize = double.parse(sizeStr.replaceAll(' KB', '')) / 1024;
-        }
+        // Create database info from the API response
+        final dbInfo = DatabaseInfo(
+          name: 'primary',
+          sizeInMB: _parseSize(data['size'] ?? '0 kB'),
+          activeConnections: data['connections'] ?? 0,
+          tables: data['tableCount'] ?? 0,
+        );
         
-        _databaseStats = DatabaseStats(
-          totalDatabases: 1,  // Just counting current database
+        final stats = DatabaseStats(
+          totalDatabases: 1,
           totalTables: data['tableCount'] ?? 0,
-          dbSize: dbSize,
-          databases: [
-            DatabaseInfo(
-              name: 'postgres',  // Default name
-              tables: data['tableCount'] ?? 0,
-              sizeInMB: dbSize,
-              activeConnections: data['connections'] ?? 1,
-            )
-          ],
+          dbSize: _parseSize(data['size'] ?? '0 kB'),
+          databases: [dbInfo],
           lastUpdated: DateTime.now(),
         );
         
-        _databaseStatsController.add(_databaseStats);
+        // Update connection status with active connections
+        _updateConnectionStatus(
+          _latestConnectionStatus.copyWith(
+            activeConnections: data['connections'] ?? 0,
+            lastChecked: DateTime.now(),
+          ),
+        );
+        
+        _latestDatabaseStats = stats;
+        _databaseStatsController.add(stats);
       }
     } catch (e) {
       print('Error fetching database stats: $e');
     }
   }
   
-  // Fetch resource statistics
   Future<void> _fetchResourceStats() async {
-    if (!_connectionStatus.isConnected) return;
-    
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/resource-stats'));
+      final response = await http.get(Uri.parse('$baseUrl/resource-stats'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
-        // CPU calculation (simplified)
-        final cpuTime = data['cpu']['active_query_time'] ?? 0.0;
-        final cpuUsage = cpuTime > 10 ? 100.0 : cpuTime * 10; // Scale for visualization
-        
-        // Memory usage
-        final memoryUsed = (data['memory']['used'] ?? 0) / (1024 * 1024); // Convert to MB
-        
-        // Disk usage (percentage)
-        final diskUsage = 50.0; // Placeholder, can be enhanced with real data
-        
-        // Update historical data
         final now = DateTime.now();
-        final newHistoricalCpuUsage = List<TimeSeriesData>.from(_resourceStats.historicalCpuUsage);
-        final newHistoricalMemoryUsage = List<TimeSeriesData>.from(_resourceStats.historicalMemoryUsage);
-        final newHistoricalDiskUsage = List<TimeSeriesData>.from(_resourceStats.historicalDiskUsage);
         
-        // Add new data points
-        newHistoricalCpuUsage.add(TimeSeriesData(time: now, value: cpuUsage));
-        newHistoricalMemoryUsage.add(TimeSeriesData(time: now, value: memoryUsed));
-        newHistoricalDiskUsage.add(TimeSeriesData(time: now, value: diskUsage));
+        // Extract CPU usage
+        final cpuUsage = data['cpu']?['active_query_time'] != null 
+          ? (data['cpu']['active_query_time'] as num).toDouble() 
+          : 0.0;
         
-        // Keep only the last 20 data points
-        if (newHistoricalCpuUsage.length > 20) {
-          newHistoricalCpuUsage.removeAt(0);
-        }
-        if (newHistoricalMemoryUsage.length > 20) {
-          newHistoricalMemoryUsage.removeAt(0);
-        }
-        if (newHistoricalDiskUsage.length > 20) {
-          newHistoricalDiskUsage.removeAt(0);
-        }
+        // Extract memory info
+        final memoryStats = data['memory'] ?? {};
+        final memoryUsage = ((memoryStats['used'] ?? 0) / 
+          (memoryStats['total'] ?? 1) * 100).clamp(0.0, 100.0);
         
-        _resourceStats = ResourceStats(
+        // Extract disk info
+        final diskStats = data['disk'] ?? {};
+        final diskUsage = ((diskStats['heap_read'] ?? 0) + 
+          (diskStats['idx_read'] ?? 0)).toDouble();
+        
+        // Update historical data (keep the last 30 points)
+        final newCpuHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalCpuUsage);
+        final newMemoryHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalMemoryUsage);
+        final newDiskHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalDiskUsage);
+        
+        newCpuHistory.add(TimeSeriesData(time: now, value: cpuUsage));
+        newMemoryHistory.add(TimeSeriesData(time: now, value: memoryUsage));
+        newDiskHistory.add(TimeSeriesData(time: now, value: diskUsage));
+        
+        // Keep only the most recent 30 data points
+        if (newCpuHistory.length > 30) newCpuHistory.removeAt(0);
+        if (newMemoryHistory.length > 30) newMemoryHistory.removeAt(0);
+        if (newDiskHistory.length > 30) newDiskHistory.removeAt(0);
+        
+        final stats = ResourceStats(
           cpuUsage: cpuUsage,
-          memoryUsage: memoryUsed,
+          memoryUsage: memoryUsage,
           diskUsage: diskUsage,
-          historicalCpuUsage: newHistoricalCpuUsage,
-          historicalMemoryUsage: newHistoricalMemoryUsage,
-          historicalDiskUsage: newHistoricalDiskUsage,
-          timestamp: DateTime.now(),
+          historicalCpuUsage: newCpuHistory,
+          historicalMemoryUsage: newMemoryHistory,
+          historicalDiskUsage: newDiskHistory,
+          timestamp: now,
         );
         
-        _resourceStatsController.add(_resourceStats);
+        _latestResourceStats = stats;
+        _resourceStatsController.add(stats);
       }
     } catch (e) {
       print('Error fetching resource stats: $e');
     }
   }
   
-  // Fetch query logs
   Future<void> _fetchQueryLogs() async {
-    if (!_connectionStatus.isConnected) return;
-    
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/query-logs'));
+      final response = await http.get(Uri.parse('$baseUrl/query-logs'));
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         
-        final List<QueryLog> logs = data.map((item) {
-          // Convert execution time from milliseconds to duration
-          final durationMs = (item['mean_time'] as num?)?.toDouble() ?? 0.0;
+        final logs = data.map((item) {
+          final query = item['query'] as String?;
+          final duration = item['duration'] != null 
+            ? double.tryParse(item['duration'].toString()) ?? 0.0
+            : (item['total_time'] != null 
+                ? double.tryParse(item['total_time'].toString()) ?? 0.0 
+                : 0.0);
+          
+          // Determine timestamp based on available data
+          DateTime timestamp;
+          try {
+            timestamp = DateTime.parse(item['timestamp'] ?? '');
+          } catch (e) {
+            timestamp = DateTime.now().subtract(Duration(seconds: duration.ceil()));
+          }
           
           return QueryLog(
-            query: item['query'] ?? 'Unknown query',
-            timestamp: DateTime.now().subtract(Duration(minutes: 5)), // Placeholder
-            executionTime: durationMs / 1000, // Convert to seconds
-            database: 'postgres', // Placeholder
-            status: 'completed',
-            state: 'idle',
-            applicationName: 'pgAdmin',
-            clientAddress: '127.0.0.1',
+            query: query ?? 'Unknown query',
+            timestamp: timestamp,
+            executionTime: duration,
+            database: item['database'] ?? 'postgres',
+            status: item['state'] ?? 'completed',
+            state: item['state'] ?? 'idle',
+            applicationName: item['application'] ?? 'PostgreSQL Monitor',
+            clientAddress: item['client_addr'] ?? 'localhost',
           );
         }).toList();
         
-        _queryLogs = logs;
-        _queryLogsController.add(_queryLogs);
+        _latestQueryLogs = logs;
+        _queryLogsController.add(logs);
       }
     } catch (e) {
       print('Error fetching query logs: $e');
     }
   }
   
-  // Execute a custom query
-  Future<List<Map<String, dynamic>>> executeCustomQuery(String query) async {
+  Future<List<Map<String, dynamic>>> runQuery(String query) async {
+    if (!_isConnected) {
+      throw Exception('Not connected to database');
+    }
+    
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/run-query'),
+        Uri.parse('$baseUrl/run-query'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'query': query}),
       );
       
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        return data.map((item) => item as Map<String, dynamic>).toList();
+        final List<dynamic> results = json.decode(response.body);
+        return results.map((item) => item as Map<String, dynamic>).toList();
       } else {
         final errorData = json.decode(response.body);
-        throw Exception(errorData['error'] ?? 'Unknown error');
+        throw Exception(errorData['error'] ?? 'Query execution failed');
       }
     } catch (e) {
-      print('Error executing custom query: $e');
-      rethrow;
+      print('Error executing query: $e');
+      throw Exception('Query execution failed: ${e.toString()}');
     }
   }
   
-  // Public methods to refresh data manually
-  Future<void> refreshConnection() async => _checkConnection();
-  Future<void> refreshDatabaseStats() async => _fetchDatabaseStats();
-  Future<void> refreshResourceStats() async => _fetchResourceStats();
-  Future<void> refreshQueryLogs() async => _fetchQueryLogs();
-  Future<void> refreshQueryPerformance() async => null; // Placeholder
-  
-  // Getters for current data
-  ConnectionStatus getConnectionStatus() => _connectionStatus;
-  DatabaseStats getDatabaseStats() => _databaseStats;
-  ResourceStats getResourceStats() => _resourceStats;
-  List<QueryLog> getQueryLogs() => _queryLogs;
-}
-
-// Placeholder for QueryPerformance model used in query_performance_screen.dart
-class QueryPerformance {
-  final String queryType;
-  final int count;
-  final Duration avgDuration;
-  final Duration maxDuration;
-  final int rowsAffected;
-
-  QueryPerformance({
-    required this.queryType,
-    required this.count,
-    required this.avgDuration,
-    required this.maxDuration,
-    required this.rowsAffected,
-  });
-
-  String get formattedAvgDuration {
-    return _formatDuration(avgDuration);
+  void _updateConnectionStatus(ConnectionStatus status) {
+    _latestConnectionStatus = status;
+    _connectionStatusController.add(status);
   }
-
-  String _formatDuration(Duration duration) {
-    if (duration.inMicroseconds < 1000) {
-      return '${duration.inMicroseconds} μs';
-    } else if (duration.inMilliseconds < 1000) {
-      return '${duration.inMilliseconds} ms';
-    } else if (duration.inSeconds < 60) {
-      return '${duration.inSeconds} s';
-    } else {
-      return '${duration.inMinutes} min';
+  
+  void dispose() {
+    _statsRefreshTimer?.cancel();
+    _resourceStatsTimer?.cancel();
+    _connectionStatusController.close();
+    _databaseStatsController.close();
+    _queryLogsController.close();
+    _resourceStatsController.close();
+  }
+  
+  /// Helper to parse size strings like "7496 kB" to MB
+  double _parseSize(String sizeStr) {
+    try {
+      final parts = sizeStr.split(' ');
+      if (parts.length != 2) return 0.0;
+      
+      final value = double.tryParse(parts[0]) ?? 0.0;
+      final unit = parts[1].toLowerCase();
+      
+      switch (unit) {
+        case 'b':
+          return value / (1024 * 1024);
+        case 'kb':
+          return value / 1024;
+        case 'mb':
+          return value;
+        case 'gb':
+          return value * 1024;
+        case 'tb':
+          return value * 1024 * 1024;
+        default:
+          return value / (1024 * 1024); // Assume bytes if unit not recognized
+      }
+    } catch (e) {
+      return 0.0;
     }
+  }
+  
+  // Getter methods for current values for StreamBuilder initialData
+  ConnectionStatus getConnectionStatus() {
+    return _latestConnectionStatus;
+  }
+  
+  DatabaseStats getDatabaseStats() {
+    return _latestDatabaseStats;
+  }
+  
+  ResourceStats getResourceStats() {
+    return _latestResourceStats;
+  }
+  
+  List<QueryLog> getQueryLogs() {
+    return _latestQueryLogs;
   }
 }

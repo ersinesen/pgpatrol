@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'theme/app_theme.dart';
+import 'services/api_database_service.dart';
 
 void main() async {
   // Ensure Flutter is initialized
@@ -12,9 +13,15 @@ void main() async {
   final themeProvider = ThemeProvider();
   await themeProvider.initializeTheme();
   
+  // Create the database service
+  final databaseService = ApiDatabaseService();
+  
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => themeProvider,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => themeProvider),
+        Provider<ApiDatabaseService>.value(value: databaseService),
+      ],
       child: const PostgreSQLMonitorApp(),
     ),
   );
