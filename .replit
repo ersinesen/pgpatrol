@@ -1,4 +1,4 @@
-modules = ["flutter", "flutter-3.16.10", "postgresql-16", "dart"]
+modules = ["flutter", "flutter-3.16.10", "postgresql-16", "dart", "nodejs-20", "python-3.11"]
 
 [nix]
 channel = "stable-24_05"
@@ -11,32 +11,20 @@ name = "Project"
 mode = "parallel"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Flutter PostgreSQL Monitor"
-
-[[workflows.workflow]]
-name = "Flutter PostgreSQL Monitor"
-author = "agent"
-
-[workflows.workflow.metadata]
-agentRequireRestartOnSave = false
-
-[[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd . && flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5000"
-waitForPort = 5000
-
 [deployment]
-run = ["sh", "-c", "cd . && flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5000"]
+run = ["sh", "-c", "node start-server.js"]
 
 [[ports]]
 localPort = 3000
-externalPort = 3000
+externalPort = 80
 
 [[ports]]
 localPort = 5000
-externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3001
+
+[[ports]]
+localPort = 37877
+externalPort = 3000

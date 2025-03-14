@@ -5,7 +5,7 @@ import '../models/connection_status.dart';
 import '../models/database_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
-import '../services/database_service.dart';
+import '../services/api_database_service.dart';
 import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/metric_card.dart';

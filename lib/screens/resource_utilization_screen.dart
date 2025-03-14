@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/resource_stats.dart';
-import '../services/database_service.dart';
+import '../services/api_database_service.dart';
 import '../widgets/performance_chart.dart';
 import '../widgets/metric_card.dart';
 import '../theme/app_theme.dart';

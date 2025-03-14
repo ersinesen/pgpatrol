@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/query_log.dart';
-import '../services/database_service.dart';
+import '../services/api_database_service.dart';
 import '../theme/app_theme.dart';
 
 class QueryPerformanceScreen extends StatefulWidget {
