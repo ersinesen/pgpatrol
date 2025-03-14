@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../services/database_service.dart';
+import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/performance_chart.dart';
 import '../widgets/query_log_table.dart';
 import '../widgets/status_indicator.dart';
+import '../main.dart';
+import 'manage_connections_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -27,12 +31,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  // Connection manager
+  final ConnectionManager _connectionManager = ConnectionManager();
+  
+  void _navigateToManageConnections() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ManageConnectionsScreen(),
+      ),
+    ).then((_) {
+      // Refresh state when returning from connection management
+      setState(() {});
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PostgreSQL Monitor'),
+        title: StreamBuilder<ConnectionStatus>(
+          stream: _databaseService.connectionStatus,
+          initialData: _databaseService.getConnectionStatus(),
+          builder: (context, snapshot) {
+            final status = snapshot.data ?? ConnectionStatus.initial();
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('PostgreSQL Monitor'),
+                if (status.connectionName != 'None') ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: status.isConnected 
+                          ? AppTheme.secondaryColor.withOpacity(0.1) 
+                          : AppTheme.errorColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      status.connectionName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: status.isConnected 
+                            ? AppTheme.secondaryColor 
+                            : AppTheme.errorColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
         actions: [
+          // Database connection button
+          IconButton(
+            icon: const Icon(Icons.storage),
+            onPressed: _navigateToManageConnections,
+            tooltip: 'Manage connections',
+          ),
+          // Refresh button
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -40,6 +100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
             tooltip: 'Refresh data',
           ),
+          // Theme toggle button
           IconButton(
             icon: Icon(
               Theme.of(context).brightness == Brightness.light
@@ -47,7 +108,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   : Icons.light_mode,
             ),
             onPressed: () {
-              // Toggle theme (would be implemented using a state management solution)
+              // Toggle theme using Provider
+              context.read<ThemeProvider>().toggleTheme();
             },
             tooltip: 'Toggle theme',
           ),

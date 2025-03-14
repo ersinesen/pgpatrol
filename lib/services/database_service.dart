@@ -1,15 +1,18 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:postgres/postgres.dart';
+import 'package:http/http.dart' as http;
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
+import '../models/server_connection.dart';
+import 'connection_manager.dart';
 
 class DatabaseService {
   PostgreSQLConnection? _connection;
-  String? _connectionString;
+  ServerConnection? _activeServerConnection;
   bool _isConnected = false;
   Timer? _statsRefreshTimer;
   Timer? _resourceStatsTimer;
@@ -32,43 +35,123 @@ class DatabaseService {
   List<QueryLog> _latestQueryLogs = [];
   ResourceStats _latestResourceStats = ResourceStats.initial();
   
+  // Connection manager instance
+  final ConnectionManager _connectionManager = ConnectionManager();
+  
   DatabaseService() {
     _initConnection();
+    
+    // Listen for connection changes
+    _connectionManager.connectionsStream.listen((connections) {
+      final activeConn = _connectionManager.activeConnection;
+      
+      // If the active connection changed, reconnect
+      if (activeConn != null && 
+          (_activeServerConnection == null || 
+           activeConn.id != _activeServerConnection!.id)) {
+        _activeServerConnection = activeConn;
+        _disconnect();
+        _connect(activeConn);
+      }
+    });
   }
   
   void _initConnection() async {
-    // Get connection details from environment variables
-    final connectionString = Platform.environment['DATABASE_URL'];
-    if (connectionString == null || connectionString.isEmpty) {
-      _updateConnectionStatus(
-        ConnectionStatus.initial().copyWith(
-          statusMessage: 'DATABASE_URL environment variable not found',
-        ),
-      );
-      return;
-    }
+    // Initialize the connection manager
+    await _connectionManager.initialize();
     
-    _connectionString = connectionString;
-    await _connect();
+    // Get the active connection
+    _activeServerConnection = _connectionManager.activeConnection;
+    
+    // If we have an active connection, connect to it
+    if (_activeServerConnection != null) {
+      await _connect(_activeServerConnection!);
+    } 
+    // Otherwise try to use environment variable
+    else {
+      try {
+        // Try to get DATABASE_URL from environment
+        Map<String, String> envVars = {};
+        
+        // In web, we can't access environment variables directly from Dart code
+        // For Replit, we'll use the provided DATABASE_URL which is injected into the web environment
+        if (kIsWeb) {
+          // Use a hacky approach to access environment variables on web by making HTTP request to our own server
+          // We'll inject these values during build time
+          // For now, create a connection to the PostgreSQL database using standard Replit values
+          final defaultConn = ServerConnection(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            name: 'Replit Database',
+            host: const String.fromEnvironment('PGHOST', defaultValue: 'localhost'),
+            port: int.parse(const String.fromEnvironment('PGPORT', defaultValue: '5432')),
+            database: const String.fromEnvironment('PGDATABASE', defaultValue: 'postgres'),
+            username: const String.fromEnvironment('PGUSER', defaultValue: 'postgres'),
+            password: const String.fromEnvironment('PGPASSWORD', defaultValue: 'postgres'),
+            isActive: true,
+            useSSL: false,
+          );
+          
+          // Add to connection manager
+          await _connectionManager.addConnection(defaultConn);
+          _activeServerConnection = defaultConn;
+          await _connect(defaultConn);
+        } else {
+          // For non-web platforms, try to use environment variables
+          final connectionString = const String.fromEnvironment('DATABASE_URL');
+          if (connectionString.isNotEmpty) {
+            final uri = Uri.parse(connectionString);
+            final userInfo = uri.userInfo.split(':');
+            
+            // Create a server connection from the environment variable
+            final defaultConn = ServerConnection(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              name: 'Environment Connection',
+              host: uri.host,
+              port: uri.port,
+              database: uri.pathSegments.last,
+              username: userInfo.first,
+              password: userInfo.length > 1 ? userInfo.last : '',
+              isActive: true,
+            );
+            
+            // Add to connection manager
+            await _connectionManager.addConnection(defaultConn);
+            _activeServerConnection = defaultConn;
+            await _connect(defaultConn);
+          } else {
+            _updateConnectionStatus(
+              ConnectionStatus.initial().copyWith(
+                statusMessage: 'No database connections configured',
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        _updateConnectionStatus(
+          ConnectionStatus.initial().copyWith(
+            statusMessage: 'Error initializing connection: ${e.toString()}',
+          ),
+        );
+      }
+    }
     
     // Start periodic updates
     _startPeriodicUpdates();
   }
   
-  Future<void> _connect() async {
-    if (_connectionString == null) return;
-    
+  Future<void> _connect(ServerConnection serverConnection) async {
     try {
-      final uri = Uri.parse(_connectionString!);
-      final userInfo = uri.userInfo.split(':');
+      // Close existing connection if open
+      await _disconnect();
       
+      // Create new connection
       _connection = PostgreSQLConnection(
-        uri.host,
-        uri.port,
-        uri.pathSegments.last,
-        username: userInfo.first,
-        password: userInfo.length > 1 ? userInfo.last : null,
-        useSSL: uri.scheme == 'postgres',
+        serverConnection.host,
+        serverConnection.port,
+        serverConnection.database,
+        username: serverConnection.username,
+        password: serverConnection.password,
+        useSSL: serverConnection.useSSL,
       );
       
       await _connection!.open();
@@ -95,7 +178,8 @@ class DatabaseService {
           activeConnections: activeConnections,
           maxConnections: maxConnections,
           lastChecked: DateTime.now(),
-          statusMessage: 'Connected',
+          statusMessage: 'Connected to ${serverConnection.name}',
+          connectionName: serverConnection.name,
         ),
       );
       
@@ -109,8 +193,17 @@ class DatabaseService {
       _updateConnectionStatus(
         ConnectionStatus.initial().copyWith(
           statusMessage: 'Connection error: ${e.toString()}',
+          connectionName: serverConnection.name,
         ),
       );
+    }
+  }
+  
+  Future<void> _disconnect() async {
+    if (_connection != null) {
+      _isConnected = false;
+      await _connection!.close();
+      _connection = null;
     }
   }
   
@@ -120,8 +213,8 @@ class DatabaseService {
       if (_isConnected) {
         await _fetchDatabaseStats();
         await _fetchQueryLogs();
-      } else {
-        await _connect();
+      } else if (_activeServerConnection != null) {
+        await _connect(_activeServerConnection!);
       }
     });
     

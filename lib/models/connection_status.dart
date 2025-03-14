@@ -5,6 +5,7 @@ class ConnectionStatus {
   final int maxConnections;
   final DateTime lastChecked;
   final String statusMessage;
+  final String connectionName;
 
   ConnectionStatus({
     required this.isConnected,
@@ -13,6 +14,7 @@ class ConnectionStatus {
     required this.maxConnections,
     required this.lastChecked,
     required this.statusMessage,
+    this.connectionName = 'Unknown',
   });
 
   factory ConnectionStatus.initial() {
@@ -23,6 +25,7 @@ class ConnectionStatus {
       maxConnections: 0,
       lastChecked: DateTime.now(),
       statusMessage: 'Not connected',
+      connectionName: 'None',
     );
   }
 
@@ -33,6 +36,7 @@ class ConnectionStatus {
     int? maxConnections,
     DateTime? lastChecked,
     String? statusMessage,
+    String? connectionName,
   }) {
     return ConnectionStatus(
       isConnected: isConnected ?? this.isConnected,
@@ -41,6 +45,7 @@ class ConnectionStatus {
       maxConnections: maxConnections ?? this.maxConnections,
       lastChecked: lastChecked ?? this.lastChecked,
       statusMessage: statusMessage ?? this.statusMessage,
+      connectionName: connectionName ?? this.connectionName,
     );
   }
 }
