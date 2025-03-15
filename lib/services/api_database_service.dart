@@ -259,7 +259,11 @@ class ApiDatabaseService {
   
   Future<void> _fetchQueryLogs() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/query-logs'));
+      if (_sessionId == null) {
+        await _getOrCreateSession();
+      }
+      
+      final response = await http.get(Uri.parse('$baseUrl/query-logs?sessionId=$_sessionId'));
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -306,8 +310,12 @@ class ApiDatabaseService {
     }
     
     try {
+      if (_sessionId == null) {
+        await _getOrCreateSession();
+      }
+      
       final response = await http.post(
-        Uri.parse('$baseUrl/run-query'),
+        Uri.parse('$baseUrl/run-query?sessionId=$_sessionId'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'query': query}),
       );
