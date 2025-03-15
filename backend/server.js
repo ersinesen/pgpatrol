@@ -65,7 +65,7 @@ app.get('/api/connections', (req, res) => {
   }
 });
 
-// Test a database connection
+// Test a database connection using connection string
 app.post('/api/test-connection', async (req, res) => {
   try {
     const { connectionString } = req.body;
@@ -85,24 +85,151 @@ app.post('/api/test-connection', async (req, res) => {
   }
 });
 
-// Register a new database connection
-app.post('/api/register-server', async (req, res) => {
+// Test a database connection using individual parameters
+app.post('/api/test-connection-params', async (req, res) => {
   try {
-    const { connectionString, name, isDefault } = req.body;
+    const { host, port, database, username, password, ssl = true } = req.body;
+    
+    // Validate required parameters
+    if (!host) {
+      return res.status(400).json({ error: 'Host is required' });
+    }
+    if (!port) {
+      return res.status(400).json({ error: 'Port is required' });
+    }
+    if (!database) {
+      return res.status(400).json({ error: 'Database name is required' });
+    }
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    // Password can be optional for some configurations
+    
+    const result = await dbManager.testConnectionParams(host, port, database, username, password, ssl);
+    res.json(result);
+  } catch (error) {
+    console.error('Connection test error (params):', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Connect using a connection string
+app.post('/api/connect-string', async (req, res) => {
+  try {
+    const { connectionString, name } = req.body;
     
     if (!connectionString) {
       return res.status(400).json({ error: 'Connection string is required' });
     }
     
-    const result = await dbManager.registerServer({
-      connectionString,
-      name: name || 'New Database',
-      isDefault: isDefault || false
-    });
+    // First test the connection
+    const testResult = await dbManager.testConnection(connectionString);
     
-    res.json(result);
+    if (!testResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: testResult.error
+      });
+    }
+    
+    // If successful, register the connection temporarily
+    const connectionId = `db_${Date.now()}`;
+    const sessionId = getSessionId(req);
+    
+    // Add to connections list with a name (temporary)
+    dbManager.connections[connectionId] = {
+      connectionString,
+      name: name || `Connection ${connectionId}`,
+      isDefault: false,
+      temporary: true // Mark as temporary
+    };
+    
+    // Set as active for this session
+    dbManager.setActiveDatabase(connectionId, sessionId);
+    
+    res.json({
+      success: true,
+      sessionId: sessionId,
+      connectionId: connectionId,
+      name: dbManager.connections[connectionId].name
+    });
   } catch (error) {
-    console.error('Server registration error:', error);
+    console.error('Database connection error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Connect to a database using parameters and get a session ID
+app.post('/api/connect', async (req, res) => {
+  try {
+    const { host, port, database, username, password, name, ssl = true } = req.body;
+    
+    // Validate required parameters
+    if (!host) {
+      return res.status(400).json({ error: 'Host is required' });
+    }
+    if (!port) {
+      return res.status(400).json({ error: 'Port is required' });
+    }
+    if (!database) {
+      return res.status(400).json({ error: 'Database name is required' });
+    }
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    // Password can be optional for some configurations
+    
+    // First test the connection
+    const testResult = await dbManager.testConnectionParams(
+      host, 
+      port, 
+      database, 
+      username, 
+      password, 
+      ssl
+    );
+    
+    if (!testResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: testResult.error
+      });
+    }
+    
+    // If successful, register the connection temporarily
+    const connectionId = `db_${Date.now()}`;
+    const sessionId = getSessionId(req);
+    
+    // Build connection string from parameters with SSL option if needed
+    const connectionString = ssl
+      ? `postgresql://${username}:${password}@${host}:${port}/${database}?sslmode=require`
+      : `postgresql://${username}:${password}@${host}:${port}/${database}`;
+    
+    // Add to connections list with a name (temporary)
+    dbManager.connections[connectionId] = {
+      connectionString,
+      name: name || `${database}@${host}`,
+      isDefault: false,
+      temporary: true // Mark as temporary
+    };
+    
+    // Set as active for this session
+    dbManager.setActiveDatabase(connectionId, sessionId);
+    
+    res.json({
+      success: true,
+      sessionId: sessionId,
+      connectionId: connectionId,
+      name: dbManager.connections[connectionId].name
+    });
+  } catch (error) {
+    console.error('Database connection error:', error);
     res.status(500).json({ 
       success: false,
       error: error.message 

@@ -13,10 +13,14 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Flutter PostgreSQL Monitor"
+args = "Backend Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Flutter Web Server"
 
 [[workflows.workflow]]
-name = "Flutter PostgreSQL Monitor"
+name = "Backend Server"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -27,7 +31,22 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node start-server.js"
+args = "cd backend && node server.js"
+waitForPort = 3001
+
+[[workflows.workflow]]
+name = "Flutter Web Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "flutter run -d web-server --web-port=5000 --web-hostname=0.0.0.0"
 waitForPort = 5000
 
 [deployment]

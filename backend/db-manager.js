@@ -77,7 +77,7 @@ class DatabaseManager {
     }
   }
 
-  // Test a database connection
+  // Test a database connection with connection string
   async testConnection(connectionString) {
     const testPool = new Pool({ connectionString });
     
@@ -96,8 +96,40 @@ class DatabaseManager {
       };
     }
   }
+  
+  // Test a database connection with individual parameters
+  async testConnectionParams(host, port, database, username, password, ssl = true) {
+    const config = {
+      host,
+      port: parseInt(port, 10),
+      database,
+      user: username,
+      password,
+      // Set a shorter connection timeout for testing
+      connectionTimeoutMillis: 5000,
+      // Add SSL options
+      ssl: ssl ? { rejectUnauthorized: false } : false
+    };
+    
+    const testPool = new Pool(config);
+    
+    try {
+      const result = await testPool.query('SELECT version()');
+      await testPool.end();
+      return {
+        success: true,
+        version: result.rows[0].version
+      };
+    } catch (error) {
+      await testPool.end();
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 
-  // Register a new database connection
+  // Register a new database connection using connection string
   async registerServer(config) {
     try {
       // Test the connection first
@@ -122,6 +154,61 @@ class DatabaseManager {
       
       // If this is marked as default, update other connections
       if (config.isDefault) {
+        Object.keys(this.connections).forEach(connId => {
+          if (connId !== id) {
+            this.connections[connId].isDefault = false;
+          }
+        });
+        
+        this.defaultConnection = id;
+      }
+      
+      // Save updated configurations
+      this.saveConfigurations();
+      
+      return {
+        success: true,
+        id: id,
+        name: this.connections[id].name
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  
+  // Register a new database connection using individual parameters
+  async registerServerParams(host, port, database, username, password, name, isDefault, ssl = true) {
+    try {
+      // Test the connection first
+      const testResult = await this.testConnectionParams(host, port, database, username, password, ssl);
+      
+      if (!testResult.success) {
+        return {
+          success: false,
+          error: testResult.error
+        };
+      }
+      
+      // Build connection string from parameters with SSL option if needed
+      const connectionString = ssl
+        ? `postgresql://${username}:${password}@${host}:${port}/${database}?sslmode=require`
+        : `postgresql://${username}:${password}@${host}:${port}/${database}`;
+      
+      // Generate a unique ID
+      const id = `db_${Date.now()}`;
+      
+      // Add to connections list
+      this.connections[id] = {
+        connectionString,
+        name: name || `${database}@${host}`,
+        isDefault: isDefault || false
+      };
+      
+      // If this is marked as default, update other connections
+      if (isDefault) {
         Object.keys(this.connections).forEach(connId => {
           if (connId !== id) {
             this.connections[connId].isDefault = false;

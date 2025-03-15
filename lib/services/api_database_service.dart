@@ -154,6 +154,13 @@ class ApiDatabaseService {
       print('Error establishing session: $e');
     }
   }
+  
+  // Set the session ID directly (used when the session is created through the ApiConnectionService)
+  void setSessionId(String sessionId) {
+    _sessionId = sessionId;
+    _isConnected = true;
+    _checkConnectionStatus(); // Update connection status with the new session
+  }
 
   Future<void> _fetchDatabaseStats() async {
     try {

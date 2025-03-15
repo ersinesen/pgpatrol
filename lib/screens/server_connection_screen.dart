@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:postgres/postgres.dart';
 import '../models/server_connection.dart';
+import '../models/session_info.dart';
 import '../services/connection_manager.dart';
+import '../services/api_connection_service.dart';
+import '../services/api_database_service.dart';
 import '../theme/app_theme.dart';
 
 class ServerConnectionScreen extends StatefulWidget {
@@ -30,12 +32,16 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
   
   bool _isActive = false;
   bool _isTestingConnection = false;
+  bool _isConnecting = false;
   String? _testConnectionResult;
   bool _testConnectionSuccess = false;
   bool _obscurePassword = true;
+  SessionInfo? _sessionInfo;
   
-  // Connection manager instance
+  // Service instances
   final ConnectionManager _connectionManager = ConnectionManager();
+  final ApiConnectionService _apiConnectionService = ApiConnectionService();
+  final ApiDatabaseService _apiDatabaseService = ApiDatabaseService();
 
   @override
   void initState() {
@@ -64,6 +70,7 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
     _databaseController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _apiConnectionService.dispose();
     super.dispose();
   }
 
@@ -87,28 +94,19 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
       database: _databaseController.text,
       username: _usernameController.text,
       password: _passwordController.text,
+      useSSL: true, // Use SSL by default for security
     );
     
     try {
-      // Create a PostgreSQL connection just for testing
-      final conn = PostgreSQLConnection(
-        connection.host,
-        connection.port,
-        connection.database,
-        username: connection.username,
-        password: connection.password,
-        useSSL: false,
-      );
-      
-      await conn.open();
-      final result = await conn.query('SELECT version();');
-      final version = result.first.first.toString();
-      await conn.close();
+      // Use our API service to test the connection
+      final result = await _apiConnectionService.testConnectionParams(connection);
       
       setState(() {
         _isTestingConnection = false;
-        _testConnectionResult = 'Connected successfully!\nServer: $version';
-        _testConnectionSuccess = true;
+        _testConnectionResult = result['success'] 
+            ? 'Connected successfully!\nServer: ${result['version']}' 
+            : 'Connection failed: ${result['message']}';
+        _testConnectionSuccess = result['success'];
       });
     } catch (e) {
       setState(() {
@@ -119,14 +117,70 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
     }
   }
 
-  Future<void> _saveConnection() async {
+  Future<void> _connectToDatabase() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    
+    setState(() {
+      _isConnecting = true;
+    });
+    
+    try {
+      // Create a connection for connecting to the database
+      final connection = ServerConnection(
+        id: widget.connection?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        name: _nameController.text,
+        host: _hostController.text,
+        port: int.parse(_portController.text),
+        database: _databaseController.text,
+        username: _usernameController.text,
+        password: _passwordController.text,
+        useSSL: true, // Use SSL by default for security
+      );
+      
+      // Connect to the database using our API service
+      final sessionInfo = await _apiConnectionService.connect(connection);
+      
+      if (sessionInfo != null) {
+        // Set the session in the database service to begin fetching data
+        _apiDatabaseService.setSessionId(sessionInfo.sessionId);
+        
+        setState(() {
+          _sessionInfo = sessionInfo;
+          _isConnecting = false;
+          
+          // Display success message
+          _testConnectionResult = 'Connected successfully!\nSession established.';
+          _testConnectionSuccess = true;
+        });
+        
+        // Store the connection in the connection manager
+        await _saveConnection(session: sessionInfo);
+      } else {
+        setState(() {
+          _isConnecting = false;
+          _testConnectionResult = 'Failed to establish session.';
+          _testConnectionSuccess = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isConnecting = false;
+        _testConnectionResult = 'Connection error: ${e.toString()}';
+        _testConnectionSuccess = false;
+      });
+    }
+  }
+
+  Future<void> _saveConnection({SessionInfo? session}) async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
     
     // Create or update connection
     final connection = ServerConnection(
-      id: widget.connection?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      id: widget.connection?.id ?? (session?.connectionId ?? DateTime.now().millisecondsSinceEpoch.toString()),
       name: _nameController.text,
       host: _hostController.text,
       port: int.parse(_portController.text),
@@ -134,6 +188,7 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
       username: _usernameController.text,
       password: _passwordController.text,
       isActive: _isActive,
+      useSSL: true, // Use SSL by default for security
     );
     
     // Save to connection manager
@@ -330,11 +385,17 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
               ),
               
               // Test connection result
-              if (_isTestingConnection) ...[
+              if (_isTestingConnection || _isConnecting) ...[
                 const SizedBox(height: 16),
                 const Center(child: CircularProgressIndicator()),
                 const SizedBox(height: 8),
-                const Center(child: Text('Testing connection...')),
+                Center(
+                  child: Text(
+                    _isTestingConnection 
+                        ? 'Testing connection...' 
+                        : 'Connecting to database...'
+                  ),
+                ),
               ],
               
               if (_testConnectionResult != null) ...[
@@ -374,6 +435,23 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ],
+              
+              // Show connect button if test was successful
+              if (_testConnectionSuccess && _sessionInfo == null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.link),
+                    label: const Text('Connect to Database'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: AppTheme.secondaryColor,
+                    ),
+                    onPressed: _isConnecting ? null : _connectToDatabase,
                   ),
                 ),
               ],
