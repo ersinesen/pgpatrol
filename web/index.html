@@ -22,6 +22,20 @@
   <script>
     // The value below is injected by flutter build, do not touch.
     var serviceWorkerVersion = '{{flutter_service_worker_version}}';
+    
+    // Flutter web buildConfig - required for proper initialization
+    window._flutter = {
+      buildConfig: {
+        engineRevision: '85059fec2c',
+        builds: [
+          {
+            renderer: 'canvaskit',
+            mainJsPath: 'main.dart.js',
+            compileTarget: 'dart2js'
+          }
+        ]
+      }
+    };
   </script>
   <!-- This script adds the flutter initialization JS code -->
   <script src="flutter.js" defer></script>
