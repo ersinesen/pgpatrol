@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:postgres/postgres.dart';
 import '../models/server_connection.dart';
 import '../services/connection_manager.dart';
+import '../services/api_connection_service.dart';
 import '../theme/app_theme.dart';
 
 class ServerConnectionScreen extends StatefulWidget {
@@ -67,6 +67,9 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
     super.dispose();
   }
 
+  // API connection service instance
+  final ApiConnectionService _apiConnectionService = ApiConnectionService();
+
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -90,25 +93,20 @@ class _ServerConnectionScreenState extends State<ServerConnectionScreen> {
     );
     
     try {
-      // Create a PostgreSQL connection just for testing
-      final conn = PostgreSQLConnection(
-        connection.host,
-        connection.port,
-        connection.database,
-        username: connection.username,
-        password: connection.password,
-        useSSL: false,
-      );
-      
-      await conn.open();
-      final result = await conn.query('SELECT version();');
-      final version = result.first.first.toString();
-      await conn.close();
+      // Use API service to test connection with the backend
+      final response = await _apiConnectionService.testConnection(connection);
       
       setState(() {
         _isTestingConnection = false;
-        _testConnectionResult = 'Connected successfully!\nServer: $version';
-        _testConnectionSuccess = true;
+        if (response['success']) {
+          final data = response['data'];
+          final version = data != null && data['version'] != null ? data['version'] : 'Unknown';
+          _testConnectionResult = 'Connected successfully!\nServer: $version';
+          _testConnectionSuccess = true;
+        } else {
+          _testConnectionResult = response['message'];
+          _testConnectionSuccess = false;
+        }
       });
     } catch (e) {
       setState(() {
