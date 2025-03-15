@@ -16,7 +16,6 @@ class ApiDatabaseService {
   
   // Flag to track if the service is connected to the backend
   bool _isConnected = false;
-  String? _sessionId;
   Timer? _statsRefreshTimer;
   Timer? _resourceStatsTimer;
   
@@ -58,10 +57,7 @@ class ApiDatabaseService {
   
   Future<void> _checkConnectionStatus() async {
     try {
-      // Get session ID first to ensure proper session tracking
-      await _getOrCreateSession();
-      
-      final response = await http.get(Uri.parse('$baseUrl/connection?sessionId=$_sessionId'));
+      final response = await http.get(Uri.parse('$baseUrl/connection'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -70,7 +66,6 @@ class ApiDatabaseService {
         
         // Extract additional connection info if available
         final serverVersion = data['version'] ?? 'Unknown';
-        final databaseName = data['databaseName'] ?? 'Default Database';
         
         _updateConnectionStatus(
           ConnectionStatus(
@@ -82,7 +77,7 @@ class ApiDatabaseService {
             statusMessage: _isConnected 
               ? 'Connected to PostgreSQL server' 
               : 'Failed to connect to server',
-            connectionName: databaseName,
+            connectionName: 'API Connection',
           ),
         );
         
@@ -134,48 +129,16 @@ class ApiDatabaseService {
     });
   }
   
-  // Get or create a session from the API server
-  Future<void> _getOrCreateSession() async {
-    if (_sessionId != null) {
-      return; // Already have a session ID
-    }
-    
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/session'));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _sessionId = data['sessionId'];
-        print('Session established: $_sessionId');
-      } else {
-        print('Failed to establish session: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error establishing session: $e');
-    }
-  }
-  
-  // Set the session ID directly (used when the session is created through the ApiConnectionService)
-  void setSessionId(String sessionId) {
-    _sessionId = sessionId;
-    _isConnected = true;
-    _checkConnectionStatus(); // Update connection status with the new session
-  }
-
   Future<void> _fetchDatabaseStats() async {
     try {
-      if (_sessionId == null) {
-        await _getOrCreateSession();
-      }
-      
-      final response = await http.get(Uri.parse('$baseUrl/stats?sessionId=$_sessionId'));
+      final response = await http.get(Uri.parse('$baseUrl/stats'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
         // Create database info from the API response
         final dbInfo = DatabaseInfo(
-          name: data['databaseName'] ?? 'primary',
+          name: 'primary',
           sizeInMB: _parseSize(data['size'] ?? '0 kB'),
           activeConnections: data['connections'] ?? 0,
           tables: data['tableCount'] ?? 0,
@@ -207,11 +170,7 @@ class ApiDatabaseService {
   
   Future<void> _fetchResourceStats() async {
     try {
-      if (_sessionId == null) {
-        await _getOrCreateSession();
-      }
-      
-      final response = await http.get(Uri.parse('$baseUrl/resource-stats?sessionId=$_sessionId'));
+      final response = await http.get(Uri.parse('$baseUrl/resource-stats'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -228,7 +187,7 @@ class ApiDatabaseService {
           (memoryStats['total'] ?? 1) * 100).clamp(0.0, 100.0);
         
         // Extract disk info
-        final diskStats = data['io'] ?? {};  // Updated from disk to io to match backend
+        final diskStats = data['disk'] ?? {};
         final diskUsage = ((diskStats['heap_read'] ?? 0) + 
           (diskStats['idx_read'] ?? 0)).toDouble();
         
@@ -266,11 +225,7 @@ class ApiDatabaseService {
   
   Future<void> _fetchQueryLogs() async {
     try {
-      if (_sessionId == null) {
-        await _getOrCreateSession();
-      }
-      
-      final response = await http.get(Uri.parse('$baseUrl/query-logs?sessionId=$_sessionId'));
+      final response = await http.get(Uri.parse('$baseUrl/query-logs'));
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -317,12 +272,8 @@ class ApiDatabaseService {
     }
     
     try {
-      if (_sessionId == null) {
-        await _getOrCreateSession();
-      }
-      
       final response = await http.post(
-        Uri.parse('$baseUrl/run-query?sessionId=$_sessionId'),
+        Uri.parse('$baseUrl/run-query'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'query': query}),
       );

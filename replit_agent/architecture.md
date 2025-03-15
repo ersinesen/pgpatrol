@@ -2,17 +2,17 @@
 
 ## Overview
 
-PostgreSQL Monitor is a cross-platform application built with Flutter and Dart, designed to provide real-time monitoring of PostgreSQL database instances. The application follows an Apple-inspired minimalist design aesthetic and is intended to run on multiple platforms, with particular support for web deployment on Replit.
+PostgreSQL Monitor is a cross-platform application built with Flutter and Dart, designed to provide real-time monitoring of PostgreSQL database instances. The application follows an Apple-inspired minimalist design aesthetic and is intended to run on multiple platforms, with particular support for web deployment.
 
 ## System Architecture
 
-The application follows a client-server architecture with clear separation of concerns:
+The application follows a layered architecture with clear separation of concerns:
 
-1. **Frontend Layer (Flutter/Dart)** - Contains screens and widgets responsible for UI rendering
-2. **API Layer (Node.js)** - Middleware that securely connects to PostgreSQL and exposes data via RESTful endpoints
-3. **Database Layer (PostgreSQL)** - The monitored database instance
+1. **Presentation Layer** - Contains screens and widgets responsible for UI rendering
+2. **Service Layer** - Handles communication with PostgreSQL databases
+3. **Model Layer** - Defines data structures used throughout the application
 
-This architecture enhances security by preventing direct database access from the client. The application uses a reactive programming approach with Dart streams to handle real-time data updates from the API.
+The application is primarily client-side, connecting directly to PostgreSQL databases using the `postgres` package. It uses a reactive programming approach with Dart streams to handle real-time data updates.
 
 ## Key Components
 
@@ -31,10 +31,9 @@ Models are immutable and use the copyWith pattern to create new instances with m
 
 Located in `lib/services/`, these classes handle the business logic and external communication:
 
-- `api_database_service.dart` - The central service that communicates with the Node.js API to fetch PostgreSQL metrics
-- `connection_manager.dart` - Manages server connections and authentication
+- `database_service.dart` - The central service that manages PostgreSQL connections, queries the database for metrics, and exposes streams of monitoring data
 
-The service layer uses Dart streams extensively to provide real-time updates to the UI. The API service maintains separate streams for different types of monitoring data (connection status, query logs, resource stats, etc.) allowing components to subscribe only to the data they need. This architecture isolates the Flutter frontend from direct database access, enhancing security.
+The service layer uses Dart streams extensively to provide real-time updates to the UI. The `DatabaseService` maintains separate streams for different types of monitoring data (connection status, query logs, resource stats, etc.) allowing components to subscribe only to the data they need.
 
 ### Screens
 

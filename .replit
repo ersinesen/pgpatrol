@@ -13,14 +13,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Backend Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Flutter Web Server"
+args = "Flutter PostgreSQL Monitor"
 
 [[workflows.workflow]]
-name = "Backend Server"
+name = "Flutter PostgreSQL Monitor"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -31,22 +27,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd backend && node server.js"
-waitForPort = 3001
-
-[[workflows.workflow]]
-name = "Flutter Web Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-agentRequireRestartOnSave = false
-
-[[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd build/web && python3 -m http.server 5000 --bind 0.0.0.0"
+args = "node start-server.js"
 waitForPort = 5000
 
 [deployment]
@@ -54,12 +35,22 @@ run = ["sh", "-c", "node start-server.js"]
 
 [[ports]]
 localPort = 3000
-externalPort = 3000
-
-[[ports]]
-localPort = 3001
 externalPort = 3001
 
 [[ports]]
+localPort = 3001
+
+[[ports]]
+localPort = 4000
+externalPort = 3000
+
+[[ports]]
 localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 5001
+
+[[ports]]
+localPort = 5500
 externalPort = 80
