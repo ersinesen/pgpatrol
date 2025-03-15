@@ -48,7 +48,6 @@ echo -e "\n${BLUE}----------------------------------------${NC}\n"
 
 # All tests completed
 echo -e "\n${GREEN}All tests completed!${NC}"
-echo -e "${YELLOW}Shutting down server...${NC}"
 
 
 exit 0
