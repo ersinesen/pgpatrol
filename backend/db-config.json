@@ -1,0 +1,7 @@
+{
+  "default": {
+    "connectionString": "postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech/neondb?sslmode=require",
+    "name": "Default Database",
+    "isDefault": true
+  }
+}

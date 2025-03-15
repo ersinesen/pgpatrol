@@ -19,7 +19,7 @@ let apiServer;
 // Function to start the API server
 function startApiServer() {
   console.log('Starting the actual server now...');
-  apiServer = exec('node server.js');
+  apiServer = exec('node backend/server.js');
 
   // Log stdout and stderr from API server
   apiServer.stdout.on('data', (data) => {
@@ -31,14 +31,16 @@ function startApiServer() {
   });
 }
 
+// Parse JSON bodies
+app.use(express.json());
+
 // Proxy API requests to our server.js
 app.use('/api', createProxyMiddleware({
   target: 'http://localhost:3001',
   changeOrigin: true,
-  pathRewrite: { '^/api': '' },
   onProxyReq: (proxyReq, req, res) => {
     // Make sure request body is forwarded 
-    if (req.body) {
+    if (req.body && Object.keys(req.body).length > 0) {
       const bodyData = JSON.stringify(req.body);
       proxyReq.setHeader('Content-Type', 'application/json');
       proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));

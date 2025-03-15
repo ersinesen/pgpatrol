@@ -1,45 +1,171 @@
+// PostgreSQL Monitor API Server with multi-database support
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
-const path = require('path');
+const dbManager = require('./db-manager');
+const { v4: uuidv4 } = require('uuid');
 
+// Create Express app
 const app = express();
-const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Serve Flutter web app static files from frontend directory
-app.use(express.static(path.join(__dirname, '../frontend')));
+// Session management
+const activeSessions = {};
 
-// Database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+// Generate or validate session
+function getSessionId(req) {
+  const sessionId = req.headers['x-session-id'] || req.query.sessionId;
+  
+  if (sessionId && activeSessions[sessionId]) {
+    // Update last activity time
+    activeSessions[sessionId].lastActivity = Date.now();
+    return sessionId;
+  }
+  
+  // Create new session
+  const newSessionId = uuidv4();
+  activeSessions[newSessionId] = {
+    createdAt: Date.now(),
+    lastActivity: Date.now()
+  };
+  
+  return newSessionId;
+}
+
+// Clean up inactive sessions (runs every 30 minutes)
+setInterval(() => {
+  const now = Date.now();
+  const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  
+  Object.keys(activeSessions).forEach(sessionId => {
+    if (now - activeSessions[sessionId].lastActivity > SESSION_TIMEOUT) {
+      delete activeSessions[sessionId];
+    }
+  });
+}, 30 * 60 * 1000);
+
+// API Routes
+
+// Session management
+app.get('/api/session', (req, res) => {
+  const sessionId = getSessionId(req);
+  res.json({ sessionId });
 });
 
-// Test database connection
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    console.error('Database connection error:', err.stack);
-  } else {
-    console.log('Database connected successfully. Current time:', res.rows[0].now);
+// Get list of available database connections
+app.get('/api/connections', (req, res) => {
+  try {
+    const connections = dbManager.getConnections();
+    res.json(connections);
+  } catch (error) {
+    console.error('Error fetching connections:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Enable pg_stat_statements extension if it's not already enabled
-pool.query(`
-  CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-`).catch(err => {
-  console.warn('Unable to enable pg_stat_statements extension:', err.message);
-  console.warn('Some query statistics may not be available');
+// Test a database connection
+app.post('/api/test-connection', async (req, res) => {
+  try {
+    const { connectionString } = req.body;
+    
+    if (!connectionString) {
+      return res.status(400).json({ error: 'Connection string is required' });
+    }
+    
+    const result = await dbManager.testConnection(connectionString);
+    res.json(result);
+  } catch (error) {
+    console.error('Connection test error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
 });
 
-// API Routes
+// Register a new database connection
+app.post('/api/register-server', async (req, res) => {
+  try {
+    const { connectionString, name, isDefault } = req.body;
+    
+    if (!connectionString) {
+      return res.status(400).json({ error: 'Connection string is required' });
+    }
+    
+    const result = await dbManager.registerServer({
+      connectionString,
+      name: name || 'New Database',
+      isDefault: isDefault || false
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Server registration error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Remove a database connection
+app.delete('/api/connections/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = dbManager.removeConnection(id);
+    res.json(result);
+  } catch (error) {
+    console.error('Error removing connection:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set active database for session
+app.post('/api/set-active-connection', (req, res) => {
+  try {
+    const { connectionId } = req.body;
+    const sessionId = getSessionId(req);
+    
+    const result = dbManager.setActiveDatabase(connectionId, sessionId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error setting active connection:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Connection status
+app.get('/api/connection', async (req, res) => {
+  try {
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
+    
+    const result = await pool.query('SELECT version()');
+    res.json({
+      status: 'connected',
+      version: result.rows[0].version,
+      databaseId: dbId,
+      databaseName: dbManager.connections[dbId].name
+    });
+  } catch (err) {
+    console.error('Database connection error:', err);
+    res.status(500).json({ 
+      status: 'disconnected',
+      error: err.message
+    });
+  }
+});
 
 // Get database stats
 app.get('/api/stats', async (req, res) => {
   try {
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
+    
     // Get database size
     const dbSizeQuery = await pool.query(`
       SELECT pg_size_pretty(pg_database_size(current_database())) as size
@@ -59,7 +185,9 @@ app.get('/api/stats', async (req, res) => {
     res.json({
       size: dbSizeQuery.rows[0].size,
       tableCount: parseInt(tableCountQuery.rows[0].table_count),
-      connections: parseInt(connectionsQuery.rows[0].connections)
+      connections: parseInt(connectionsQuery.rows[0].connections),
+      databaseId: dbId,
+      databaseName: dbManager.connections[dbId].name
     });
   } catch (err) {
     console.error('Error fetching database stats:', err);
@@ -70,144 +198,183 @@ app.get('/api/stats', async (req, res) => {
 // Get query logs
 app.get('/api/query-logs', async (req, res) => {
   try {
-    const queryLogsResult = await pool.query(`
-      SELECT 
-        query,
-        calls,
-        total_time,
-        min_time,
-        max_time,
-        mean_time,
-        rows
-      FROM pg_stat_statements
-      ORDER BY total_time DESC
-      LIMIT 50
-    `);
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
     
-    res.json(queryLogsResult.rows);
+    try {
+      // First try with pg_stat_statements
+      const queryLogsResult = await pool.query(`
+        SELECT 
+          query,
+          calls,
+          total_time,
+          min_time,
+          max_time,
+          mean_time,
+          rows
+        FROM pg_stat_statements
+        ORDER BY total_time DESC
+        LIMIT 50
+      `);
+      
+      res.json(queryLogsResult.rows);
+    } catch (statsErr) {
+      console.warn('pg_stat_statements not available, falling back to pg_stat_activity');
+      
+      // Fallback to pg_stat_activity for basic query info
+      const activityResult = await pool.query(`
+        SELECT 
+          query,
+          state,
+          backend_start,
+          xact_start,
+          query_start,
+          wait_event_type,
+          wait_event
+        FROM pg_stat_activity
+        WHERE state IS NOT NULL AND query <> '<insufficient privilege>'
+        ORDER BY query_start DESC
+        LIMIT 50
+      `);
+      
+      // Transform into a compatible format
+      const transformedResults = activityResult.rows.map(row => ({
+        query: row.query,
+        state: row.state,
+        duration: row.query_start ? Math.floor((new Date() - new Date(row.query_start)) / 1000) : null,
+        backend_start: row.backend_start,
+        wait_event_type: row.wait_event_type,
+        wait_event: row.wait_event
+      }));
+      
+      res.json(transformedResults);
+    }
   } catch (err) {
     console.error('Error fetching query logs:', err);
-    res.status(500).json({ error: 'Failed to fetch query logs. Make sure pg_stat_statements extension is enabled.' });
+    res.status(500).json({ 
+      error: 'Failed to fetch query logs',
+      details: err.message 
+    });
   }
 });
 
 // Get resource utilization
 app.get('/api/resource-stats', async (req, res) => {
   try {
-    // CPU usage (from pg_stat_activity)
-    const cpuQuery = await pool.query(`
-      SELECT SUM(EXTRACT(EPOCH FROM (now() - query_start))) as total_cpu_time
-      FROM pg_stat_activity
-      WHERE state = 'active' AND query != '<IDLE>' AND query NOT ILIKE '%pg_stat_activity%'
-    `);
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
     
-    // Memory usage
-    const memoryQuery = await pool.query(`
-      SELECT SUM(total_bytes) as total_memory, SUM(free_bytes) as free_memory
-      FROM (
-        SELECT sum(block_size*total_blocks) as total_bytes, 
-               sum(block_size*free_blocks) as free_bytes
-        FROM pg_catalog.pg_freespace
-      ) as x
-    `);
+    let resourceStats = {
+      cpu: {},
+      memory: {},
+      io: {},
+      timestamp: new Date().toISOString()
+    };
     
-    // Disk I/O
-    const diskQuery = await pool.query(`
-      SELECT sum(heap_blks_read) as heap_read,
-             sum(heap_blks_hit) as heap_hit,
-             sum(idx_blks_read) as idx_read,
-             sum(idx_blks_hit) as idx_hit
-      FROM pg_statio_user_tables
-    `);
+    // Get CPU proxy data (active query time)
+    try {
+      const cpuResult = await pool.query(`
+        SELECT extract(epoch from (now() - query_start)) as active_query_time
+        FROM pg_stat_activity 
+        WHERE state = 'active' AND pid <> pg_backend_pid()
+        ORDER BY active_query_time DESC
+        LIMIT 1
+      `);
+      
+      resourceStats.cpu.active_query_time = cpuResult.rows.length > 0 
+        ? parseFloat(cpuResult.rows[0].active_query_time) || 0
+        : 0;
+    } catch (error) {
+      console.warn('Error fetching CPU stats:', error.message);
+      resourceStats.cpu.active_query_time = 0;
+    }
     
-    res.json({
-      cpu: {
-        active_query_time: parseFloat(cpuQuery.rows[0].total_cpu_time || 0)
-      },
-      memory: {
-        total: parseInt(memoryQuery.rows[0].total_memory || 0),
-        free: parseInt(memoryQuery.rows[0].free_memory || 0),
-        used: parseInt((memoryQuery.rows[0].total_memory || 0) - (memoryQuery.rows[0].free_memory || 0))
-      },
-      disk: {
-        heap_read: parseInt(diskQuery.rows[0].heap_read || 0),
-        heap_hit: parseInt(diskQuery.rows[0].heap_hit || 0),
-        idx_read: parseInt(diskQuery.rows[0].idx_read || 0),
-        idx_hit: parseInt(diskQuery.rows[0].idx_hit || 0)
+    // Get memory configuration
+    try {
+      const memoryResult = await pool.query(`
+        SELECT name, setting, unit 
+        FROM pg_settings 
+        WHERE name IN ('shared_buffers', 'work_mem', 'maintenance_work_mem')
+      `);
+      
+      memoryResult.rows.forEach(row => {
+        resourceStats.memory[row.name] = parseInt(row.setting, 10);
+      });
+    } catch (error) {
+      console.warn('Error fetching memory stats:', error.message);
+      resourceStats.memory = {
+        shared_buffers: 0,
+        work_mem: 0,
+        maintenance_work_mem: 0
+      };
+    }
+    
+    // Get I/O statistics
+    try {
+      const ioResult = await pool.query(`
+        SELECT 
+          sum(heap_blks_read) as heap_read,
+          sum(heap_blks_hit) as heap_hit,
+          sum(idx_blks_read) as idx_read,
+          sum(idx_blks_hit) as idx_hit
+        FROM pg_statio_user_tables
+      `);
+      
+      if (ioResult.rows.length > 0) {
+        const row = ioResult.rows[0];
+        resourceStats.io = {
+          heap_read: parseInt(row.heap_read) || 0,
+          heap_hit: parseInt(row.heap_hit) || 0,
+          idx_read: parseInt(row.idx_read) || 0,
+          idx_hit: parseInt(row.idx_hit) || 0
+        };
+        
+        // Calculate cache hit ratio
+        const totalReads = resourceStats.io.heap_read + resourceStats.io.idx_read;
+        const totalHits = resourceStats.io.heap_hit + resourceStats.io.idx_hit;
+        const totalIO = totalReads + totalHits;
+        
+        resourceStats.io.cache_hit_ratio = totalIO > 0 
+          ? (totalHits / totalIO * 100).toFixed(2)
+          : 0;
       }
-    });
-  } catch (err) {
-    console.error('Error fetching resource stats:', err);
+    } catch (error) {
+      console.warn('Error fetching I/O stats:', error.message);
+      resourceStats.io = {
+        heap_read: 0,
+        heap_hit: 0,
+        idx_read: 0,
+        idx_hit: 0,
+        cache_hit_ratio: 0
+      };
+    }
+    
+    res.json(resourceStats);
+  } catch (error) {
+    console.error('Error fetching resource stats:', error);
     res.status(500).json({ error: 'Failed to fetch resource statistics' });
   }
 });
 
-// Connection status
-app.get('/api/connection', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT version()');
-    res.json({
-      status: 'connected',
-      version: result.rows[0].version
-    });
-  } catch (err) {
-    console.error('Database connection error:', err);
-    res.status(500).json({ 
-      status: 'disconnected',
-      error: err.message
-    });
-  }
-});
-
-// Execute custom query
-app.post('/api/run-query', async (req, res) => {
-  try {
-    const { query } = req.body;
-    
-    if (!query) {
-      return res.status(400).json({ error: 'Query parameter is required' });
-    }
-    
-    // Add safety checks to prevent harmful queries
-    const lowercaseQuery = query.toLowerCase();
-    if (
-      lowercaseQuery.includes('drop table') || 
-      lowercaseQuery.includes('drop database') ||
-      lowercaseQuery.includes('truncate table') ||
-      lowercaseQuery.includes('delete from') ||
-      lowercaseQuery.includes('update ')
-    ) {
-      return res.status(403).json({ 
-        error: 'Potentially harmful query detected. For safety reasons, DELETE, DROP, TRUNCATE, and UPDATE operations are not allowed through this API.'
-      });
-    }
-    
-    const startTime = Date.now();
-    const result = await pool.query(query);
-    const executionTime = (Date.now() - startTime) / 1000;
-    
-    console.log(`Query executed in ${executionTime}s:`, query);
-    
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Error executing query:', err);
-    res.status(500).json({ error: `Failed to execute query: ${err.message}` });
-  }
-});
-
-// SPA fallback - this ensures all routes are handled by the Flutter app
-app.get('*', (req, res) => {
-  // Exclude API routes
-  if (!req.url.startsWith('/api/')) {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
-  }
-});
-
 // Start the server
+const PORT = process.env.API_PORT || 3001;
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Backend API server running on http://0.0.0.0:${PORT}`);
-  
-  // Print debug info about the server address
-  const address = server.address();
-  console.log(`Server bound to address: ${JSON.stringify(address)}`);
+  console.log(`API server listening on port ${PORT}`);
+});
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  console.log('Shutting down API server...');
+  await dbManager.shutdown();
+  server.close();
+  process.exit();
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Shutting down API server...');
+  await dbManager.shutdown();
+  server.close();
+  process.exit();
 });
