@@ -16,6 +16,7 @@ class ApiDatabaseService {
   
   // Flag to track if the service is connected to the backend
   bool _isConnected = false;
+  String? _sessionId;
   Timer? _statsRefreshTimer;
   Timer? _resourceStatsTimer;
   
@@ -57,7 +58,10 @@ class ApiDatabaseService {
   
   Future<void> _checkConnectionStatus() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/connection'));
+      // Get session ID first to ensure proper session tracking
+      await _getOrCreateSession();
+      
+      final response = await http.get(Uri.parse('$baseUrl/connection?sessionId=$_sessionId'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -66,6 +70,7 @@ class ApiDatabaseService {
         
         // Extract additional connection info if available
         final serverVersion = data['version'] ?? 'Unknown';
+        final databaseName = data['databaseName'] ?? 'Default Database';
         
         _updateConnectionStatus(
           ConnectionStatus(
@@ -77,7 +82,7 @@ class ApiDatabaseService {
             statusMessage: _isConnected 
               ? 'Connected to PostgreSQL server' 
               : 'Failed to connect to server',
-            connectionName: 'API Connection',
+            connectionName: databaseName,
           ),
         );
         
@@ -129,16 +134,41 @@ class ApiDatabaseService {
     });
   }
   
+  // Get or create a session from the API server
+  Future<void> _getOrCreateSession() async {
+    if (_sessionId != null) {
+      return; // Already have a session ID
+    }
+    
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/session'));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _sessionId = data['sessionId'];
+        print('Session established: $_sessionId');
+      } else {
+        print('Failed to establish session: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error establishing session: $e');
+    }
+  }
+
   Future<void> _fetchDatabaseStats() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/stats'));
+      if (_sessionId == null) {
+        await _getOrCreateSession();
+      }
+      
+      final response = await http.get(Uri.parse('$baseUrl/stats?sessionId=$_sessionId'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
         // Create database info from the API response
         final dbInfo = DatabaseInfo(
-          name: 'primary',
+          name: data['databaseName'] ?? 'primary',
           sizeInMB: _parseSize(data['size'] ?? '0 kB'),
           activeConnections: data['connections'] ?? 0,
           tables: data['tableCount'] ?? 0,
@@ -170,7 +200,11 @@ class ApiDatabaseService {
   
   Future<void> _fetchResourceStats() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/resource-stats'));
+      if (_sessionId == null) {
+        await _getOrCreateSession();
+      }
+      
+      final response = await http.get(Uri.parse('$baseUrl/resource-stats?sessionId=$_sessionId'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -187,7 +221,7 @@ class ApiDatabaseService {
           (memoryStats['total'] ?? 1) * 100).clamp(0.0, 100.0);
         
         // Extract disk info
-        final diskStats = data['disk'] ?? {};
+        final diskStats = data['io'] ?? {};  // Updated from disk to io to match backend
         final diskUsage = ((diskStats['heap_read'] ?? 0) + 
           (diskStats['idx_read'] ?? 0)).toDouble();
         
