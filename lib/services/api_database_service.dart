@@ -7,6 +7,7 @@ import '../models/database_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../models/server_connection.dart';
+import 'connection_manager.dart';
 
 /// DatabaseService implementation that uses our Node.js API instead of
 /// connecting directly to PostgreSQL.
@@ -52,17 +53,7 @@ class ApiDatabaseService {
   /// Connect to a PostgreSQL database using the connection parameters
   Future<bool> connect(ServerConnection connection) async {
     try {
-      // First, test the connection
-      
-      /*final testResult = await _testConnection(connection);
-      if (!testResult['success']) {
-        _updateConnectionStatus(
-          ConnectionStatus.initial().copyWith(
-            statusMessage: 'Connection test failed: ${testResult['message']}',
-          ),
-        );
-        return false;
-      }*/
+      print('ApiDatabaseService: Connecting to ${connection.name} (ID: ${connection.id})');
       
       // If test is successful, connect to the database
       final response = await http.post(
@@ -89,7 +80,7 @@ class ApiDatabaseService {
           _connectionName = data['name'];
           _isConnected = true;
           
-          print('Connected successfully with session ID: $_sessionId');
+          print('ApiDatabaseService: Connected successfully with session ID: $_sessionId');
           
           // Update connection status
           _updateConnectionStatus(
@@ -103,6 +94,13 @@ class ApiDatabaseService {
               connectionName: connection.name,
             ),
           );
+          
+          // Store the connection ID on successful connection
+          print('ApiDatabaseService: Setting active connection in ConnectionManager');
+          
+          // Update the connection manager to set this connection as active
+          // This ensures all screens know which connection is active
+          ConnectionManager().setActiveConnection(connection.id);
           
           // Initialize data fetching
           await _checkConnectionStatus();
@@ -150,6 +148,8 @@ class ApiDatabaseService {
     }
     
     try {
+      print('ApiDatabaseService: Disconnecting from database');
+      
       // Update connection status to "disconnecting"
       _updateConnectionStatus(
         ConnectionStatus(
@@ -166,6 +166,9 @@ class ApiDatabaseService {
       // Stop refresh timers
       _stopPeriodicUpdates();
       
+      // Store connection id before resetting
+      final connectionId = _connectionId;
+      
       // Reset connection state
       _isConnected = false;
       _sessionId = null;
@@ -178,6 +181,11 @@ class ApiDatabaseService {
           statusMessage: 'Disconnected',
         ),
       );
+      
+      print('ApiDatabaseService: Disconnected successfully');
+      
+      // Note: We still maintain the active connection in the connection manager
+      // This allows the dashboard to show the active connection even when disconnected
       
       return true;
     } catch (e) {
@@ -597,7 +605,6 @@ class ApiDatabaseService {
   }
   
   // Stream getters
-  Stream<ConnectionStatus> get connectionStatusStream => _connectionStatusController.stream;
   Stream<DatabaseStats> get databaseStatsStream => _databaseStatsController.stream;
   Stream<List<QueryLog>> get queryLogsStream => _queryLogsController.stream;
   Stream<ResourceStats> get resourceStatsStream => _resourceStatsController.stream;

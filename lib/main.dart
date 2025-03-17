@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/api_database_service.dart';
+import 'services/connection_manager.dart';
 
 void main() async {
   // Ensure Flutter is initialized
@@ -13,6 +14,10 @@ void main() async {
   final themeProvider = ThemeProvider();
   await themeProvider.initializeTheme();
   
+  // Initialize the ConnectionManager singleton
+  await ConnectionManager().initialize();
+  print('Main: ConnectionManager initialized');
+  
   // Create the database service
   final databaseService = ApiDatabaseService();
   
@@ -21,6 +26,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => themeProvider),
         Provider<ApiDatabaseService>.value(value: databaseService),
+        Provider<ConnectionManager>.value(value: ConnectionManager()),
       ],
       child: const PostgreSQLMonitorApp(),
     ),

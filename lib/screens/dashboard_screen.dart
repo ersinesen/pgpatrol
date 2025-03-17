@@ -30,11 +30,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     // Get the database service from the provider
     _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+    
+    // Listen for connection changes
+    _connectionManager.connectionsStream.listen((connections) {
+      print('Dashboard: Connection list changed, active connection may have changed');
+      
+      // Check if we need to connect to a new database
+      if (!_databaseService.isConnected()) {
+        // If we're not connected, try to connect to the active connection
+        _checkAndConnectToDatabase();
+      } else {
+        // If we're connected, check if we're connected to the correct database
+        final activeConnection = _connectionManager.activeConnection;
+        if (activeConnection != null) {
+          final status = _databaseService.getConnectionStatus();
+          
+          // If the connection name doesn't match the active connection, reconnect
+          if (status.connectionName != activeConnection.name) {
+            print('Dashboard: Connected to ${status.connectionName}, but active connection is ${activeConnection.name}');
+            // Disconnect and reconnect to the active connection
+            _disconnectAndReconnect();
+          }
+        }
+      }
+    });
+    
+    // Check connection status
+    final connectionStatus = _databaseService.getConnectionStatus();
+    final activeConnection = _connectionManager.activeConnection;
+    
+    if (!_databaseService.isConnected()) {
+      // If not connected, try to connect with the active connection
+      print('Dashboard: Not connected, attempting to connect to active connection');
+      _checkAndConnectToDatabase();
+    } else if (activeConnection != null && 
+              connectionStatus.connectionName != activeConnection.name) {
+      // If we're connected but not to the active connection, reconnect
+      print('Dashboard: Connected to ${connectionStatus.connectionName}, but active connection is ${activeConnection.name}');
+      _disconnectAndReconnect();
+    } else {
+      print('Dashboard: Already connected to ${connectionStatus.connectionName}');
+    }
   }
   
+  /// Try to connect to the first available database connection
+  Future<void> _checkAndConnectToDatabase() async {
+    try {
+      // Get available connections from the manager
+      final connections = _connectionManager.connections;
+      
+      if (connections.isEmpty) {
+        print('Dashboard: No connections available');
+        return;
+      }
+      
+      // Find the active connection if any
+      final activeConnection = _connectionManager.activeConnection;
+      
+      if (activeConnection == null) {
+        print('Dashboard: No active connection found');
+        return;
+      }
+      
+      print('Dashboard trying to connect to: ${activeConnection.name} (isActive: ${activeConnection.isActive})');
+      
+      // Skip if we're already connected
+      if (_databaseService.isConnected()) {
+        print('Dashboard: Already connected, skipping connection');
+        setState(() {}); // Refresh UI state
+        return;
+      }
+      
+      // Connect to the database
+      final result = await _databaseService.connect(activeConnection);
+      if (!result) {
+        print('Failed to connect to database from dashboard');
+      } else {
+        print('Successfully connected to database from dashboard');
+        setState(() {}); // Refresh UI state
+      }
+    } catch (e) {
+      print('Error connecting to database from dashboard: $e');
+    }
+  }
+  
+  /// Disconnect and reconnect to the active connection
+  Future<void> _disconnectAndReconnect() async {
+    try {
+      print('Dashboard: Disconnecting and reconnecting to match active connection');
+      
+      // First disconnect from the current database
+      await _databaseService.disconnect();
+      
+      // Wait a moment to let the system process
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Then connect to the active connection
+      await _checkAndConnectToDatabase();
+      
+      // Refresh the UI
+      setState(() {});
+    } catch (e) {
+      print('Dashboard: Error during disconnect/reconnect: $e');
+    }
+  }
+
   @override
   void dispose() {
-    // Note: we don't call dispose on the database service since it's managed by the provider
+    // Note: we don't call disconnect on the database service when navigating away
+    // This ensures the connection remains active when returning to this screen
     super.dispose();
   }
 
@@ -50,6 +154,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ).then((_) {
       // Refresh state when returning from connection management
       setState(() {});
+      
+      // Check if we need to connect to the active connection
+      if (!_databaseService.isConnected()) {
+        print('Dashboard: returning from connections screen, checking active connection');
+        _checkAndConnectToDatabase();
+      }
     });
   }
 
@@ -201,7 +311,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildDatabaseStatsSection() {
     return StreamBuilder<DatabaseStats>(
-      stream: _databaseService.databaseStats,
+      stream: _databaseService.databaseStatsStream,
       initialData: _databaseService.getDatabaseStats(),
       builder: (context, snapshot) {
         final dbStats = snapshot.data ?? DatabaseStats.initial();
@@ -317,7 +427,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildResourceUsageSection() {
     return StreamBuilder<ResourceStats>(
-      stream: _databaseService.resourceStats,
+      stream: _databaseService.resourceStatsStream,
       initialData: _databaseService.getResourceStats(),
       builder: (context, snapshot) {
         final resourceStats = snapshot.data ?? ResourceStats.initial();
@@ -375,7 +485,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildRecentQueriesSection() {
     return StreamBuilder<List<QueryLog>>(
-      stream: _databaseService.queryLogs,
+      stream: _databaseService.queryLogsStream,
       initialData: _databaseService.getQueryLogs(),
       builder: (context, snapshot) {
         final queryLogs = snapshot.data ?? [];

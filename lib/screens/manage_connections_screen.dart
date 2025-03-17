@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/server_connection.dart';
+import '../models/connection_status.dart';
 import '../services/connection_manager.dart';
 import '../services/api_database_service.dart';
 import '../theme/app_theme.dart';
@@ -13,9 +15,11 @@ class ManageConnectionsScreen extends StatefulWidget {
 }
 
 class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
+  // Get ConnectionManager as a singleton
   final ConnectionManager _connectionManager = ConnectionManager();
-  final ApiDatabaseService _databaseService = ApiDatabaseService(
-  );
+  // Will get ApiDatabaseService from provider
+  late final ApiDatabaseService _databaseService;
+  
   List<ServerConnection> _connections = [];
   String? _connectedId; // Track which connection is currently connected
   String? _loadingConnectionId; // Track which connection is currently being processed
@@ -23,7 +27,11 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
   @override
   void initState() {
     super.initState();
+    // Get the shared database service from provider
+    _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+    
     _loadConnections();
+    _syncConnectionState();
     
     // Listen for changes to connections
     _connectionManager.connectionsStream.listen((connections) {
@@ -33,24 +41,50 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
     });
     
     // Listen for connection status changes
-    _databaseService.connectionStatusStream.listen((status) {
+    _databaseService.connectionStatus.listen((status) {
       if (!mounted) return;
       
       setState(() {
-        // If we're disconnected, clear the connected ID
-        if (!status.isConnected && _connectedId != null) {
+        // Update the connected ID based on the connection status
+        if (status.isConnected) {
+          // Find the connection matching the connected name
+          final connection = _connections.firstWhere(
+            (conn) => conn.name == status.connectionName,
+            orElse: () => _connections.first,
+          );
+          _connectedId = connection.id;
+          print('ManageConnections: Setting connected ID to ${connection.id} (${connection.name})');
+        } else {
+          // If disconnected, clear the connected ID
           _connectedId = null;
         }
       });
     });
   }
   
+  // Sync the connection state on initialization
+  void _syncConnectionState() {
+    final status = _databaseService.getConnectionStatus();
+    if (status.isConnected) {
+      // Find the connection that might be connected already
+      final activeConn = _connectionManager.activeConnection;
+      if (activeConn != null) {
+        setState(() {
+          _connectedId = activeConn.id;
+        });
+      }
+    }
+  }
+  
   @override
   void dispose() {
-    // Make sure to disconnect when screen is disposed
-    if (_connectedId != null) {
-      _databaseService.disconnect();
-    }
+    // Do NOT disconnect when navigating away - we want the connection to persist
+    // between screens.
+    
+    // if (_connectedId != null) {
+    //   _databaseService.disconnect();
+    // }
+    
     super.dispose();
   }
 
@@ -118,7 +152,30 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
   }
 
   Future<void> _setActiveConnection(ServerConnection connection) async {
+    print("ManageConnectionsScreen: Setting active connection: ${connection.name}");
+    
+    // If we're currently connected to another database, disconnect first
+    if (_connectedId != null) {
+      print("ManageConnectionsScreen: Disconnecting from current database before setting new active connection");
+      await _databaseService.disconnect();
+      setState(() {
+        _connectedId = null;
+      });
+    }
+    
+    // Set this connection as active in the connection manager
     await _connectionManager.setActiveConnection(connection.id);
+    
+    // Notify user
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${connection.name} set as active connection'),
+        backgroundColor: Colors.blue,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    
+    // Update the connections list
     _loadConnections();
   }
   
@@ -131,6 +188,11 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
     });
     
     try {
+      // First set this connection as active in the connection manager
+      await _connectionManager.setActiveConnection(connection.id);
+      
+      print("ManageConnectionsScreen: Setting active connection: ${connection.name}");
+      
       // Use the database service to establish connection
       final success = await _databaseService.connect(connection);
       
@@ -138,6 +200,9 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
         setState(() {
           _connectedId = connection.id;
         });
+        
+        // Make sure connections are updated in UI
+        _loadConnections();
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -176,12 +241,17 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
     });
     
     try {
+      print("ManageConnectionsScreen: Disconnecting from database");
+      
       // Use the database service to disconnect
       await _databaseService.disconnect();
       
       setState(() {
         _connectedId = null;
       });
+      
+      // Make sure connections are updated in UI
+      _loadConnections();
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
