@@ -496,29 +496,7 @@ class ApiDatabaseService {
     }
   }
   
-  Future<bool> setActiveConnection(String connectionId) async {
-    if (_sessionId == null) return false;
-    
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/set-active-connection'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-ID': _sessionId!,
-        },
-        body: json.encode({'connectionId': connectionId}),
-      );
-      
-      if (response.statusCode == 200) {
-        await _checkConnectionStatus();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      print('Error setting active connection: $e');
-      return false;
-    }
-  }
+
   
   Future<List<ServerConnection>> getAvailableConnections() async {
     try {

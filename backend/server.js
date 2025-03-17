@@ -282,20 +282,6 @@ app.delete("/api/connections/:id", (req, res) => {
   }
 });
 
-// Set active database for session
-app.post("/api/set-active-connection", (req, res) => {
-  try {
-    const { connectionId } = req.body;
-    const sessionId = getSessionId(req);
-
-    const result = dbManager.setActiveDatabase(connectionId, sessionId);
-    res.json(result);
-  } catch (error) {
-    console.error("Error setting active connection:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Connection status
 app.get("/api/connection", async (req, res) => {
   try {
