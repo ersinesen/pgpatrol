@@ -39,7 +39,8 @@ class ApiDatabaseService {
   
   // Constructor
   ApiDatabaseService({
-    this.baseUrl = '/api', // Default to relative URL for same-origin requests
+    // Use your replit URL here
+    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001', 
   }) {
     // Initialize
     _initialize();
@@ -186,10 +187,10 @@ class ApiDatabaseService {
         final memoryUsage = ((memoryStats['used'] ?? 0) / 
           (memoryStats['total'] ?? 1) * 100).clamp(0.0, 100.0);
         
-        // Extract disk info
-        final diskStats = data['disk'] ?? {};
-        final diskUsage = ((diskStats['heap_read'] ?? 0) + 
-          (diskStats['idx_read'] ?? 0)).toDouble();
+        // Extract I/O info
+        final ioStats = data['io'] ?? {};
+        final diskUsage = ((ioStats['heap_read'] ?? 0) + 
+          (ioStats['idx_read'] ?? 0)).toDouble();
         
         // Update historical data (keep the last 30 points)
         final newCpuHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalCpuUsage);

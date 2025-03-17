@@ -4,11 +4,12 @@ import '../models/server_connection.dart';
 
 class ApiConnectionService {
   // The base URL of the backend API
-  final String baseUrl = 'http://localhost:3001';
-  
+  final String baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001';
+ 
   // Test connection with the provided parameters
   Future<Map<String, dynamic>> testConnection(ServerConnection connection) async {
     final url = Uri.parse('$baseUrl/api/test-connection-params');
+    print('URL: $url');
     
     try {
       final response = await http.post(
@@ -25,6 +26,8 @@ class ApiConnectionService {
           'ssl': true, // Enable SSL mode by default
         }),
       );
+
+      print('Response: $response');
       
       if (response.statusCode == 200) {
         return {

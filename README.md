@@ -1,16 +1,14 @@
-# workspace
+# pgpatrol
 
-A new Flutter project.
+PostgreSQL monitoring app.
 
-## Getting Started
+## Test
 
-This project is a starting point for a Flutter application.
+neondb
 
-A few resources to get you started if this is your first Flutter project:
+URL=DATABASE_URL=postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech/neondb?sslmode=require
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Host: ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech
+Database: neondb
+Username: neondb_owner
+Password: npg_MFngW07NVOTC
