@@ -227,6 +227,7 @@ app.post("/api/connect", async (req, res) => {
     );
 
     if (!testResult.success) {
+      console.log('Test failed:', testResult.error);
       return res.status(400).json({
         success: false,
         error: testResult.error,
@@ -417,89 +418,98 @@ app.get("/api/resource-stats", async (req, res) => {
     const pool = dbManager.getPool(dbId, sessionId);
 
     let resourceStats = {
-      cpu: {},
-      memory: {},
-      io: {},
+      cpuUsage: 0.0,
+      memoryUsage: 0.0,
+      diskUsage: 0.0,
       timestamp: new Date().toISOString(),
     };
 
-    // Get CPU proxy data (active query time)
+    // Get CPU usage (active queries as a proxy for CPU load)
     try {
       const cpuResult = await pool.query(`
-        SELECT extract(epoch from (now() - query_start)) as active_query_time
-        FROM pg_stat_activity 
-        WHERE state = 'active' AND pid <> pg_backend_pid()
-        ORDER BY active_query_time DESC
-        LIMIT 1
+        SELECT count(*) AS active_queries
+        FROM pg_stat_activity
+        WHERE state = 'active' AND pid <> pg_backend_pid();
       `);
 
-      resourceStats.cpu.active_query_time =
-        cpuResult.rows.length > 0
-          ? parseFloat(cpuResult.rows[0].active_query_time) || 0
-          : 0;
+      resourceStats.cpuUsage = cpuResult.rows.length > 0
+        ? parseFloat(cpuResult.rows[0].active_queries) || 0
+        : 0;
     } catch (error) {
       console.warn("Error fetching CPU stats:", error.message);
-      resourceStats.cpu.active_query_time = 0;
     }
 
-    // Get memory configuration
+    // Get memory usage (calculate usage percentage from total memory)
     try {
       const memoryResult = await pool.query(`
-        SELECT name, setting, unit 
-        FROM pg_settings 
-        WHERE name IN ('shared_buffers', 'work_mem', 'maintenance_work_mem')
+        SELECT setting::bigint AS total_mem
+        FROM pg_settings
+        WHERE name = 'shared_buffers';
       `);
 
-      memoryResult.rows.forEach((row) => {
-        resourceStats.memory[row.name] = parseInt(row.setting, 10);
-      });
-    } catch (error) {
-      console.warn("Error fetching memory stats:", error.message);
-      resourceStats.memory = {
-        shared_buffers: 0,
-        work_mem: 0,
-        maintenance_work_mem: 0,
-      };
-    }
+      if (memoryResult.rows.length > 0) {
+        const totalMem = parseInt(memoryResult.rows[0].total_mem, 10);
+        const usedMemResult = await pool.query(`
+          SELECT sum(pg_database_size(datname)) AS used_mem
+          FROM pg_database;
+        `);
 
-    // Get I/O statistics
-    try {
-      const ioResult = await pool.query(`
-        SELECT 
-          sum(heap_blks_read) as heap_read,
-          sum(heap_blks_hit) as heap_hit,
-          sum(idx_blks_read) as idx_read,
-          sum(idx_blks_hit) as idx_hit
-        FROM pg_statio_user_tables
-      `);
-
-      if (ioResult.rows.length > 0) {
-        const row = ioResult.rows[0];
-        resourceStats.io = {
-          heap_read: parseInt(row.heap_read) || 0,
-          heap_hit: parseInt(row.heap_hit) || 0,
-          idx_read: parseInt(row.idx_read) || 0,
-          idx_hit: parseInt(row.idx_hit) || 0,
-        };
-
-        // Calculate cache hit ratio
-        const totalReads =
-          resourceStats.io.heap_read + resourceStats.io.idx_read;
-        const totalHits = resourceStats.io.heap_hit + resourceStats.io.idx_hit;
-        const totalIO = totalReads + totalHits;
-
-        resourceStats.io.cache_hit_ratio =
-          totalIO > 0 ? ((totalHits / totalIO) * 100).toFixed(2) : 0;
+        if (usedMemResult.rows.length > 0) {
+          const usedMem = parseInt(usedMemResult.rows[0].used_mem, 10);
+          resourceStats.memoryUsage = totalMem > 0 ? (usedMem / totalMem) * 100 : 0;
+        }
       }
     } catch (error) {
-      console.warn("Error fetching I/O stats:", error.message);
-      resourceStats.io = {
-        heap_read: 0,
-        heap_hit: 0,
-        idx_read: 0,
-        idx_hit: 0,
-        cache_hit_ratio: 0,
-      };
+      console.warn("Error fetching memory stats:", error.message);
+    }
+
+    // Get disk usage (database size)
+    try {
+      const diskResult = await pool.query(`
+        SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size,
+               pg_database_size(current_database()) AS db_size_bytes;
+      `);
+      
+      if (diskResult.rows.length > 0) {
+        resourceStats.diskUsage = parseInt(diskResult.rows[0].db_size_bytes, 10);
+      }
+    } catch (error) {
+      console.warn("Error fetching disk stats:", error.message);
+    }
+
+    res.json(resourceStats);
+  } catch (error) {
+    console.error("Error fetching resource stats:", error);
+    res.status(500).json({ error: "Failed to fetch resource statistics" });
+  }
+});
+
+// Get Table
+app.get("/api/table-stats", async (req, res) => {
+  try {
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
+
+    let resourceStats = {
+      timestamp: new Date().toISOString(),
+    };
+
+    // Get tables sizes
+    try {
+      const sql = `SELECT schemaname || '.' || tablename AS table_name,                                             
+        pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size      
+        FROM                                                                                          
+            pg_tables                                                                                 
+        WHERE                                                                                         
+            schemaname NOT IN ('pg_catalog', 'information_schema')                                    
+        ORDER BY                                                                                      
+            pg_total_relation_size(schemaname || '.' || tablename) DESC;`;
+      const tableSizes = await pool.query(sql);
+      resourceStats.tableSizes = tableSizes.rows;
+    }
+    catch (error) {
+      console.warn("Error fetching table sizes:", error.message);
     }
 
     res.json(resourceStats);

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
+import '../models/table_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../models/server_connection.dart';
@@ -28,24 +29,28 @@ class ApiDatabaseService {
   // Stream controllers for real-time updates
   final _connectionStatusController = StreamController<ConnectionStatus>.broadcast();
   final _databaseStatsController = StreamController<DatabaseStats>.broadcast();
+  final _tableStatsController = StreamController<TableStats>.broadcast();
   final _queryLogsController = StreamController<List<QueryLog>>.broadcast();
   final _resourceStatsController = StreamController<ResourceStats>.broadcast();
   
   // Streams
   Stream<ConnectionStatus> get connectionStatus => _connectionStatusController.stream;
   Stream<DatabaseStats> get databaseStats => _databaseStatsController.stream;
+  Stream<TableStats> get tableStats => _tableStatsController.stream;
   Stream<List<QueryLog>> get queryLogs => _queryLogsController.stream;
   Stream<ResourceStats> get resourceStats => _resourceStatsController.stream;
   
   // Latest data
   ConnectionStatus _latestConnectionStatus = ConnectionStatus.initial();
   DatabaseStats _latestDatabaseStats = DatabaseStats.initial();
+  TableStats _latestTableStats = TableStats.initial();
   List<QueryLog> _latestQueryLogs = [];
   ResourceStats _latestResourceStats = ResourceStats.initial();
   
   // Constructor
   ApiDatabaseService({
-    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
+    //this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
+    this.baseUrl = 'http://localhost:3001/api',
   }) {
     // Will be initialized after connection
   }
@@ -66,7 +71,7 @@ class ApiDatabaseService {
           'username': connection.username,
           'password': connection.password,
           'name': connection.name,
-          'ssl': true, // Enable SSL by default
+          'ssl': false, // Enable SSL by default
         }),
       );
       
@@ -106,6 +111,7 @@ class ApiDatabaseService {
           await _checkConnectionStatus();
           if (_isConnected) {
             await _fetchDatabaseStats();
+            await _fetchTableStats();
             await _fetchResourceStats();
             await _fetchQueryLogs();
             _startPeriodicUpdates();
@@ -206,7 +212,7 @@ class ApiDatabaseService {
           'database': connection.database,
           'username': connection.username,
           'password': connection.password,
-          'ssl': true, // Enable SSL by default
+          'ssl': false, // Enable SSL by default
         }),
       );
       
@@ -309,13 +315,14 @@ class ApiDatabaseService {
       if (_isConnected) {
         await _fetchDatabaseStats();
         await _fetchQueryLogs();
+        await _fetchTableStats();
       } else {
         await _checkConnectionStatus();
       }
     });
     
-    // Fetch resource stats every 2 seconds
-    _resourceStatsTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+    // Fetch resource stats every 5 seconds
+    _resourceStatsTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (_isConnected) {
         await _fetchResourceStats();
       }
@@ -365,49 +372,77 @@ class ApiDatabaseService {
       print('Error fetching database stats: $e');
     }
   }
-  
-  Future<void> _fetchResourceStats() async {
+
+  Future<void> _fetchTableStats() async {
     if (_sessionId == null) return;
     
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/resource-stats'),
+        Uri.parse('$baseUrl/table-stats'),
         headers: {'X-Session-ID': _sessionId!},
       );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        
+        // Create database info from the API response
+        var tableList = data['tableSizes'];
+        var tables = List<TableInfo>.empty(growable: true);
+
+        tableList.forEach((table) {
+          final tableInfo = TableInfo(
+            name: table['table_name'] ?? 'Unknown Table',
+            size: _parseSize(table['total_size'] ?? '0 kB'),
+          );
+          tables.add(tableInfo);
+        });
+        
+        final stats = TableStats(
+          totalTables: tables.length ?? 0,
+          tables: tables,
+          lastUpdated: DateTime.now(),
+        );
+                
+        _latestTableStats = stats;
+        _tableStatsController.add(stats);
+      }
+    } catch (e) {
+      print('Error fetching database stats: $e');
+    }
+  }
+  
+  Future<void> _fetchResourceStats() async {
+    if (_sessionId == null) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/resource-stats'),
+        headers: {'X-Session-ID': _sessionId!},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         final now = DateTime.now();
-        
-        // Extract CPU usage
-        final cpuUsage = data['cpu']?['active_query_time'] != null 
-          ? (data['cpu']['active_query_time'] as num).toDouble() 
-          : 0.0;
-        
-        // Extract memory info
-        final memoryStats = data['memory'] ?? {};
-        final memoryUsage = ((memoryStats['shared_buffers'] ?? 0) / 
-          (memoryStats['work_mem'] ?? 1) * 100).clamp(0.0, 100.0);
-        
-        // Extract I/O info
-        final ioStats = data['io'] ?? {};
-        final diskUsage = ((ioStats['heap_read'] ?? 0) + 
-          (ioStats['idx_read'] ?? 0)).toDouble();
-        
-        // Update historical data (keep the last 30 points)
+        print(data);
+
+        // Extract CPU, Memory, and Disk Usage
+        final cpuUsage = (data['cpuUsage'] as num).toDouble();
+        final memoryUsage = (data['memoryUsage'] as num) / (1024 * 1024); // Convert to MB
+        final diskUsage = (data['diskUsage'] as num) / (1024 * 1024 * 1024); // Convert to GB
+
+        // Maintain Historical Data (Last 30 points)
         final newCpuHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalCpuUsage);
         final newMemoryHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalMemoryUsage);
         final newDiskHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalDiskUsage);
-        
+
         newCpuHistory.add(TimeSeriesData(time: now, value: cpuUsage));
         newMemoryHistory.add(TimeSeriesData(time: now, value: memoryUsage));
         newDiskHistory.add(TimeSeriesData(time: now, value: diskUsage));
-        
-        // Keep only the most recent 30 data points
+
         if (newCpuHistory.length > 30) newCpuHistory.removeAt(0);
         if (newMemoryHistory.length > 30) newMemoryHistory.removeAt(0);
         if (newDiskHistory.length > 30) newDiskHistory.removeAt(0);
-        
+
         final stats = ResourceStats(
           cpuUsage: cpuUsage,
           memoryUsage: memoryUsage,
@@ -417,7 +452,7 @@ class ApiDatabaseService {
           historicalDiskUsage: newDiskHistory,
           timestamp: now,
         );
-        
+
         _latestResourceStats = stats;
         _resourceStatsController.add(stats);
       }
@@ -425,7 +460,7 @@ class ApiDatabaseService {
       print('Error fetching resource stats: $e');
     }
   }
-  
+
   Future<void> _fetchQueryLogs() async {
     if (_sessionId == null) return;
     
@@ -551,6 +586,7 @@ class ApiDatabaseService {
     _resourceStatsTimer?.cancel();
     _connectionStatusController.close();
     _databaseStatsController.close();
+    _tableStatsController.close();
     _queryLogsController.close();
     _resourceStatsController.close();
   }
@@ -592,6 +628,10 @@ class ApiDatabaseService {
     return _latestDatabaseStats;
   }
   
+  TableStats getTableStats() {
+    return _latestTableStats;
+  }
+
   ResourceStats getResourceStats() {
     return _latestResourceStats;
   }
@@ -606,6 +646,7 @@ class ApiDatabaseService {
   
   // Stream getters
   Stream<DatabaseStats> get databaseStatsStream => _databaseStatsController.stream;
+  Stream<TableStats> get tableStatsStream => _tableStatsController.stream;
   Stream<List<QueryLog>> get queryLogsStream => _queryLogsController.stream;
   Stream<ResourceStats> get resourceStatsStream => _resourceStatsController.stream;
 }

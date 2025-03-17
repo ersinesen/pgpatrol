@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
+import '../models/table_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../services/api_database_service.dart';
@@ -175,7 +176,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('PostgreSQL Monitor'),
+                const Image(
+                  image: AssetImage('assets/images/pgpatrol.png'),
+                  width: 48,
+                  height: 48,
+                ),
+                const Text('pgpatrol'),
                 if (status.connectionName != 'None') ...[
                   const SizedBox(width: 8),
                   Container(
@@ -250,6 +256,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _buildResourceUsageSection(),
                 const SizedBox(height: 24),
                 _buildRecentQueriesSection(),
+                const SizedBox(height: 24),
+                _buildTableStatsSection(),
               ],
             ),
           ),
@@ -273,14 +281,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               style: Theme.of(context).textTheme.displaySmall,
             ),
             const SizedBox(height: 16),
-            StatusIndicator(
-              isConnected: connectionStatus.isConnected,
-              label: 'STATUS',
-              statusMessage: connectionStatus.statusMessage,
-            ),
-            const SizedBox(height: 16),
             Row(
               children: [
+                Expanded(
+                  child: StatusIndicator(
+                    isConnected: connectionStatus.isConnected,
+                    label: 'STATUS',
+                    statusMessage: connectionStatus.statusMessage,
+                  ),
+                ),
+                const SizedBox(width: 16),
                 Expanded(
                   child: MetricCard(
                     title: 'SERVER VERSION',
@@ -292,7 +302,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: MetricCard(
                     title: 'ACTIVE CONNECTIONS',
-                    value: '${connectionStatus.activeConnections} / ${connectionStatus.maxConnections}',
+                    value: '${connectionStatus.activeConnections}',
                     icon: Icons.people_alt_rounded,
                   ),
                 ),
@@ -425,13 +435,193 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildTableStatsSection() {
+    return StreamBuilder<TableStats>(
+      stream: _databaseService.tableStatsStream,
+      initialData: _databaseService.getTableStats(),
+      builder: (context, snapshot) {
+        final tableStats = snapshot.data ?? TableStats.initial();
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Table Sizes',
+              style: Theme.of(context).textTheme.displaySmall,
+            ),
+            const SizedBox(height: 16),
+
+            if (tableStats.tables.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: tableStats.tables.length,
+                      separatorBuilder: (context, index) => const Divider(),
+                      itemBuilder: (context, index) {
+                        final table = tableStats.tables[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  table.name,
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 1,
+                                child: Text(
+                                  '${table.size.toStringAsFixed(2)} MB',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildResourceUsageSection() {
     return StreamBuilder<ResourceStats>(
       stream: _databaseService.resourceStatsStream,
       initialData: _databaseService.getResourceStats(),
       builder: (context, snapshot) {
         final resourceStats = snapshot.data ?? ResourceStats.initial();
-        
+
+        return DefaultTabController(
+          length: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Resource Utilization',
+                style: Theme.of(context).textTheme.displaySmall,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: MetricCard(
+                      title: 'CPU USAGE',
+                      value: '${resourceStats.cpuUsage.toStringAsFixed(1)}%',
+                      icon: Icons.memory_rounded,
+                      iconColor: _getUtilizationColor(resourceStats.cpuUsage),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: MetricCard(
+                      title: 'MEMORY USAGE',
+                      value: '${resourceStats.memoryUsage.toStringAsFixed(1)} MB',
+                      icon: Icons.memory_rounded,
+                      iconColor: AppTheme.primaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: MetricCard(
+                      title: 'DISK USAGE',
+                      value: '${resourceStats.diskUsage.toStringAsFixed(2)} GB',
+                      icon: Icons.storage_rounded,
+                      iconColor: _getUtilizationColor(resourceStats.diskUsage),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // TabBar for selecting different charts
+              TabBar(
+                labelColor: Theme.of(context).primaryColor,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: Theme.of(context).primaryColor,
+                tabs: const [
+                  Tab(text: 'CPU'),
+                  Tab(text: 'Memory'),
+                  Tab(text: 'Disk'),
+                ],
+              ),
+
+              // Wrap TabBarView inside Expanded to avoid height issues
+              SizedBox(
+                height: 300,
+                child: TabBarView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: PerformanceChart(
+                        title: 'CPU USAGE OVER TIME',
+                        data: resourceStats.historicalCpuUsage,
+                        lineColor: _getUtilizationColor(resourceStats.cpuUsage),
+                        unit: '%',
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: PerformanceChart(
+                        title: 'MEMORY USAGE OVER TIME',
+                        data: resourceStats.historicalMemoryUsage,
+                        lineColor: AppTheme.primaryColor,
+                        unit: 'MB',
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: PerformanceChart(
+                        title: 'DISK USAGE OVER TIME',
+                        data: resourceStats.historicalDiskUsage,
+                        lineColor: _getUtilizationColor(resourceStats.diskUsage),
+                        unit: 'GB',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+/*
+  Widget _buildResourceUsageSection() {
+    return StreamBuilder<ResourceStats>(
+      stream: _databaseService.resourceStatsStream,
+      initialData: _databaseService.getResourceStats(),
+      builder: (context, snapshot) {
+        final resourceStats = snapshot.data ?? ResourceStats.initial();
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -453,7 +643,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: MetricCard(
-                    title: 'MEMORY',
+                    title: 'MEMORY USAGE',
                     value: '${resourceStats.memoryUsage.toStringAsFixed(1)} MB',
                     icon: Icons.memory_rounded,
                     iconColor: AppTheme.primaryColor,
@@ -463,7 +653,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: MetricCard(
                     title: 'DISK USAGE',
-                    value: '${resourceStats.diskUsage.toStringAsFixed(1)}%',
+                    value: '${resourceStats.diskUsage.toStringAsFixed(2)} GB',
                     icon: Icons.storage_rounded,
                     iconColor: _getUtilizationColor(resourceStats.diskUsage),
                   ),
@@ -471,17 +661,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            PerformanceChart(
-              title: 'CPU USAGE OVER TIME',
-              data: resourceStats.historicalCpuUsage,
-              lineColor: _getUtilizationColor(resourceStats.cpuUsage),
-              unit: '%',
+            // TabBar for selecting different charts
+            TabBar(
+              labelColor: Theme.of(context).primaryColor,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Theme.of(context).primaryColor,
+              tabs: const [
+                Tab(text: 'CPU'),
+                Tab(text: 'Memory'),
+                Tab(text: 'Disk'),
+              ],
+            ),
+            // TabBarView to switch between different charts
+            SizedBox(
+              height: 200, // Adjust height as needed
+              child: TabBarView(
+                children: [
+                  PerformanceChart(
+                    title: 'CPU USAGE OVER TIME',
+                    data: resourceStats.historicalCpuUsage,
+                    lineColor: _getUtilizationColor(resourceStats.cpuUsage),
+                    unit: '%',
+                  ),
+                  PerformanceChart(
+                    title: 'MEMORY USAGE OVER TIME',
+                    data: resourceStats.historicalCpuUsage,
+                    lineColor: _getUtilizationColor(resourceStats.memoryUsage),
+                    unit: 'MB',
+                  ),
+                  PerformanceChart(
+                    title: 'DISK USAGE OVER TIME',
+                    data: resourceStats.historicalCpuUsage,
+                    lineColor: _getUtilizationColor(resourceStats.diskUsage),
+                    unit: 'GB',
+                  ),
+                ],
+              ),
             ),
           ],
         );
       },
     );
-  }
+  }*/
 
   Widget _buildRecentQueriesSection() {
     return StreamBuilder<List<QueryLog>>(

@@ -1,22 +1,7 @@
 {
   "default": {
-    "connectionString": "postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech/neondb?sslmode=require",
+    "connectionString": "postgresql://localhost:5432/postgres",
     "name": "Default Database",
-    "isDefault": false
-  },
-  "db_1742076203775": {
-    "connectionString": "postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech:5432/neondb?sslmode=require",
-    "name": "Test Neon DB",
-    "isDefault": false
-  },
-  "db_1742076297512": {
-    "connectionString": "postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech:5432/neondb?sslmode=require",
-    "name": "New Test DB",
     "isDefault": true
-  },
-  "db_1742076395628": {
-    "connectionString": "postgresql://neondb_owner:npg_MFngW07NVOTC@ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech:5432/neondb?sslmode=require",
-    "name": "Test DB 1742076391",
-    "isDefault": false
   }
 }
