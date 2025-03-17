@@ -14,6 +14,11 @@ class ApiDatabaseService {
   // Base URL for API requests
   final String baseUrl;
   
+  // Session management
+  String? _sessionId;
+  String? _connectionId;
+  String? _connectionName;
+  
   // Flag to track if the service is connected to the backend
   bool _isConnected = false;
   Timer? _statsRefreshTimer;
@@ -39,26 +44,201 @@ class ApiDatabaseService {
   
   // Constructor
   ApiDatabaseService({
-    // Use your replit URL here
-    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001', 
+    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
   }) {
-    // Initialize
-    _initialize();
+    // Will be initialized after connection
   }
   
-  void _initialize() async {
-    // Initial check of connection status
-    await _checkConnectionStatus();
+  /// Connect to a PostgreSQL database using the connection parameters
+  Future<bool> connect(ServerConnection connection) async {
+    try {
+      // First, test the connection
+      
+      /*final testResult = await _testConnection(connection);
+      if (!testResult['success']) {
+        _updateConnectionStatus(
+          ConnectionStatus.initial().copyWith(
+            statusMessage: 'Connection test failed: ${testResult['message']}',
+          ),
+        );
+        return false;
+      }*/
+      
+      // If test is successful, connect to the database
+      final response = await http.post(
+        Uri.parse('$baseUrl/connect'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'host': connection.host,
+          'port': connection.port,
+          'database': connection.database,
+          'username': connection.username,
+          'password': connection.password,
+          'name': connection.name,
+          'ssl': true, // Enable SSL by default
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['success']) {
+          // Store session information for subsequent requests
+          _sessionId = data['sessionId'];
+          _connectionId = data['connectionId'];
+          _connectionName = data['name'];
+          _isConnected = true;
+          
+          print('Connected successfully with session ID: $_sessionId');
+          
+          // Update connection status
+          _updateConnectionStatus(
+            ConnectionStatus(
+              isConnected: true,
+              serverVersion: 'PostgreSQL', // Will be updated with first status check
+              activeConnections: 0,
+              maxConnections: 100,
+              lastChecked: DateTime.now(),
+              statusMessage: 'Connected to ${connection.name}',
+              connectionName: connection.name,
+            ),
+          );
+          
+          // Initialize data fetching
+          await _checkConnectionStatus();
+          if (_isConnected) {
+            await _fetchDatabaseStats();
+            await _fetchResourceStats();
+            await _fetchQueryLogs();
+            _startPeriodicUpdates();
+          }
+          
+          return true;
+        } else {
+          _updateConnectionStatus(
+            ConnectionStatus.initial().copyWith(
+              statusMessage: 'Connection failed: ${data['error'] ?? 'Unknown error'}',
+            ),
+          );
+          return false;
+        }
+      } else {
+        _isConnected = false;
+        _updateConnectionStatus(
+          ConnectionStatus.initial().copyWith(
+            statusMessage: 'API error: ${response.statusCode}',
+          ),
+        );
+        return false;
+      }
+    } catch (e) {
+      _isConnected = false;
+      _updateConnectionStatus(
+        ConnectionStatus.initial().copyWith(
+          statusMessage: 'Connection error: ${e.toString()}',
+        ),
+      );
+      return false;
+    }
+  }
+  
+  /// Disconnect from the currently connected database
+  Future<bool> disconnect() async {
+    // If we're not connected, return immediately
+    if (!_isConnected || _sessionId == null) {
+      return true;
+    }
     
-    // Start periodic updates if connection is successful
-    if (_isConnected) {
-      _startPeriodicUpdates();
+    try {
+      // Update connection status to "disconnecting"
+      _updateConnectionStatus(
+        ConnectionStatus(
+          isConnected: true,
+          statusMessage: 'Disconnecting...',
+          serverVersion: 'PostgreSQL',
+          activeConnections: 0,
+          maxConnections: 0,
+          lastChecked: DateTime.now(),
+          connectionName: _connectionName ?? '',
+        ),
+      );
+      
+      // Stop refresh timers
+      _stopPeriodicUpdates();
+      
+      // Reset connection state
+      _isConnected = false;
+      _sessionId = null;
+      _connectionId = null;
+      _connectionName = null;
+      
+      // Update connection status to "disconnected"
+      _updateConnectionStatus(
+        ConnectionStatus.initial().copyWith(
+          statusMessage: 'Disconnected',
+        ),
+      );
+      
+      return true;
+    } catch (e) {
+      print('Error disconnecting: ${e.toString()}');
+      return false;
+    }
+  }
+  
+  /// Test a connection without actually connecting
+  Future<Map<String, dynamic>> _testConnection(ServerConnection connection) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/test-connection-params'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'host': connection.host,
+          'port': connection.port,
+          'database': connection.database,
+          'username': connection.username,
+          'password': connection.password,
+          'ssl': true, // Enable SSL by default
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? 'Connection test completed',
+        };
+      } else {
+        final errorData = json.decode(response.body);
+        return {
+          'success': false,
+          'message': 'Connection test failed: ${errorData['error'] ?? 'Unknown error'}',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Connection test error: ${e.toString()}',
+      };
     }
   }
   
   Future<void> _checkConnectionStatus() async {
+    if (_sessionId == null) {
+      _isConnected = false;
+      _updateConnectionStatus(
+        ConnectionStatus.initial().copyWith(
+          statusMessage: 'No active session',
+        ),
+      );
+      return;
+    }
+    
     try {
-      final response = await http.get(Uri.parse('$baseUrl/connection'));
+      final response = await http.get(
+        Uri.parse('$baseUrl/connection'),
+        headers: {'X-Session-ID': _sessionId!},
+      );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -66,7 +246,8 @@ class ApiDatabaseService {
         _isConnected = data['status'] == 'connected';
         
         // Extract additional connection info if available
-        final serverVersion = data['version'] ?? 'Unknown';
+        final serverVersion = data['version'] ?? 'PostgreSQL';
+        final databaseName = data['databaseName'] ?? _connectionName ?? 'Database';
         
         _updateConnectionStatus(
           ConnectionStatus(
@@ -76,18 +257,21 @@ class ApiDatabaseService {
             maxConnections: 100, // Default value
             lastChecked: DateTime.now(),
             statusMessage: _isConnected 
-              ? 'Connected to PostgreSQL server' 
-              : 'Failed to connect to server',
-            connectionName: 'API Connection',
+              ? 'Connected to $databaseName' 
+              : 'Disconnected from database',
+            connectionName: databaseName,
           ),
         );
         
-        // If connected, fetch initial data
-        if (_isConnected) {
-          await _fetchDatabaseStats();
-          await _fetchResourceStats();
-          await _fetchQueryLogs();
+        // If connected, start periodic updates if not already running
+        if (_isConnected && _statsRefreshTimer == null) {
           _startPeriodicUpdates();
+        } else if (!_isConnected) {
+          // Reset timers if disconnected
+          _statsRefreshTimer?.cancel();
+          _resourceStatsTimer?.cancel();
+          _statsRefreshTimer = null;
+          _resourceStatsTimer = null;
         }
       } else {
         _isConnected = false;
@@ -131,15 +315,20 @@ class ApiDatabaseService {
   }
   
   Future<void> _fetchDatabaseStats() async {
+    if (_sessionId == null) return;
+    
     try {
-      final response = await http.get(Uri.parse('$baseUrl/stats'));
+      final response = await http.get(
+        Uri.parse('$baseUrl/stats'),
+        headers: {'X-Session-ID': _sessionId!},
+      );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
         // Create database info from the API response
         final dbInfo = DatabaseInfo(
-          name: 'primary',
+          name: data['databaseName'] ?? 'primary',
           sizeInMB: _parseSize(data['size'] ?? '0 kB'),
           activeConnections: data['connections'] ?? 0,
           tables: data['tableCount'] ?? 0,
@@ -170,8 +359,13 @@ class ApiDatabaseService {
   }
   
   Future<void> _fetchResourceStats() async {
+    if (_sessionId == null) return;
+    
     try {
-      final response = await http.get(Uri.parse('$baseUrl/resource-stats'));
+      final response = await http.get(
+        Uri.parse('$baseUrl/resource-stats'),
+        headers: {'X-Session-ID': _sessionId!},
+      );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -184,8 +378,8 @@ class ApiDatabaseService {
         
         // Extract memory info
         final memoryStats = data['memory'] ?? {};
-        final memoryUsage = ((memoryStats['used'] ?? 0) / 
-          (memoryStats['total'] ?? 1) * 100).clamp(0.0, 100.0);
+        final memoryUsage = ((memoryStats['shared_buffers'] ?? 0) / 
+          (memoryStats['work_mem'] ?? 1) * 100).clamp(0.0, 100.0);
         
         // Extract I/O info
         final ioStats = data['io'] ?? {};
@@ -225,8 +419,13 @@ class ApiDatabaseService {
   }
   
   Future<void> _fetchQueryLogs() async {
+    if (_sessionId == null) return;
+    
     try {
-      final response = await http.get(Uri.parse('$baseUrl/query-logs'));
+      final response = await http.get(
+        Uri.parse('$baseUrl/query-logs'),
+        headers: {'X-Session-ID': _sessionId!},
+      );
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -242,7 +441,9 @@ class ApiDatabaseService {
           // Determine timestamp based on available data
           DateTime timestamp;
           try {
-            timestamp = DateTime.parse(item['timestamp'] ?? '');
+            timestamp = item['query_start'] != null
+              ? DateTime.parse(item['query_start'])
+              : DateTime.now().subtract(Duration(seconds: duration.ceil()));
           } catch (e) {
             timestamp = DateTime.now().subtract(Duration(seconds: duration.ceil()));
           }
@@ -251,10 +452,10 @@ class ApiDatabaseService {
             query: query ?? 'Unknown query',
             timestamp: timestamp,
             executionTime: duration,
-            database: item['database'] ?? 'postgres',
+            database: item['database'] ?? _connectionName ?? 'postgres',
             status: item['state'] ?? 'completed',
             state: item['state'] ?? 'idle',
-            applicationName: item['application'] ?? 'PostgreSQL Monitor',
+            applicationName: item['application_name'] ?? 'PostgreSQL Monitor',
             clientAddress: item['client_addr'] ?? 'localhost',
           );
         }).toList();
@@ -268,14 +469,17 @@ class ApiDatabaseService {
   }
   
   Future<List<Map<String, dynamic>>> runQuery(String query) async {
-    if (!_isConnected) {
+    if (!_isConnected || _sessionId == null) {
       throw Exception('Not connected to database');
     }
     
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/run-query'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': _sessionId!,
+        },
         body: json.encode({'query': query}),
       );
       
@@ -292,9 +496,68 @@ class ApiDatabaseService {
     }
   }
   
+  Future<bool> setActiveConnection(String connectionId) async {
+    if (_sessionId == null) return false;
+    
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/set-active-connection'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': _sessionId!,
+        },
+        body: json.encode({'connectionId': connectionId}),
+      );
+      
+      if (response.statusCode == 200) {
+        await _checkConnectionStatus();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('Error setting active connection: $e');
+      return false;
+    }
+  }
+  
+  Future<List<ServerConnection>> getAvailableConnections() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/connections'));
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        
+        return data.map((item) {
+          return ServerConnection(
+            id: item['id'] ?? '',
+            name: item['name'] ?? 'Unnamed',
+            host: '', // These details are not returned by the API
+            port: 0,
+            database: '',
+            username: '',
+            password: '',
+            isActive: _connectionId == item['id'],
+          );
+        }).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('Error fetching connections: $e');
+      return [];
+    }
+  }
+  
   void _updateConnectionStatus(ConnectionStatus status) {
     _latestConnectionStatus = status;
     _connectionStatusController.add(status);
+  }
+  
+  void _stopPeriodicUpdates() {
+    _statsRefreshTimer?.cancel();
+    _resourceStatsTimer?.cancel();
+    _statsRefreshTimer = null;
+    _resourceStatsTimer = null;
   }
   
   void dispose() {
@@ -350,4 +613,14 @@ class ApiDatabaseService {
   List<QueryLog> getQueryLogs() {
     return _latestQueryLogs;
   }
+  
+  bool isConnected() {
+    return _isConnected && _sessionId != null;
+  }
+  
+  // Stream getters
+  Stream<ConnectionStatus> get connectionStatusStream => _connectionStatusController.stream;
+  Stream<DatabaseStats> get databaseStatsStream => _databaseStatsController.stream;
+  Stream<List<QueryLog>> get queryLogsStream => _queryLogsController.stream;
+  Stream<ResourceStats> get resourceStatsStream => _resourceStatsController.stream;
 }

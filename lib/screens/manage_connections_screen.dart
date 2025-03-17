@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/server_connection.dart';
 import '../services/connection_manager.dart';
+import '../services/api_database_service.dart';
 import '../theme/app_theme.dart';
 import 'server_connection_screen.dart';
 
@@ -13,7 +14,11 @@ class ManageConnectionsScreen extends StatefulWidget {
 
 class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
   final ConnectionManager _connectionManager = ConnectionManager();
+  final ApiDatabaseService _databaseService = ApiDatabaseService(
+  );
   List<ServerConnection> _connections = [];
+  String? _connectedId; // Track which connection is currently connected
+  String? _loadingConnectionId; // Track which connection is currently being processed
 
   @override
   void initState() {
@@ -26,6 +31,27 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
         _connections = connections;
       });
     });
+    
+    // Listen for connection status changes
+    _databaseService.connectionStatusStream.listen((status) {
+      if (!mounted) return;
+      
+      setState(() {
+        // If we're disconnected, clear the connected ID
+        if (!status.isConnected && _connectedId != null) {
+          _connectedId = null;
+        }
+      });
+    });
+  }
+  
+  @override
+  void dispose() {
+    // Make sure to disconnect when screen is disposed
+    if (_connectedId != null) {
+      _databaseService.disconnect();
+    }
+    super.dispose();
   }
 
   Future<void> _loadConnections() async {
@@ -95,6 +121,87 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
     await _connectionManager.setActiveConnection(connection.id);
     _loadConnections();
   }
+  
+  /// Connect to a database
+  Future<void> _connectToDatabase(ServerConnection connection) async {
+    if (_loadingConnectionId != null) return;
+    
+    setState(() {
+      _loadingConnectionId = connection.id;
+    });
+    
+    try {
+      // Use the database service to establish connection
+      final success = await _databaseService.connect(connection);
+      
+      if (success) {
+        setState(() {
+          _connectedId = connection.id;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connected to ${connection.name}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to connect to ${connection.name}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _loadingConnectionId = null;
+      });
+    }
+  }
+  
+  /// Disconnect from the database
+  Future<void> _disconnectFromDatabase() async {
+    if (_loadingConnectionId != null || _connectedId == null) return;
+    
+    setState(() {
+      _loadingConnectionId = _connectedId;
+    });
+    
+    try {
+      // Use the database service to disconnect
+      await _databaseService.disconnect();
+      
+      setState(() {
+        _connectedId = null;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Disconnected from database'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error disconnecting: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _loadingConnectionId = null;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +261,8 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
       itemCount: _connections.length,
       itemBuilder: (context, index) {
         final connection = _connections[index];
+        final bool isConnected = _connectedId == connection.id;
+        
         return Card(
           margin: const EdgeInsets.only(bottom: 16.0),
           elevation: 2,
@@ -166,8 +275,35 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                subtitle: Text(
-                  '${connection.username}@${connection.host}:${connection.port}/${connection.database}',
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${connection.username}@${connection.host}:${connection.port}/${connection.database}',
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isConnected ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isConnected ? 'Connected' : 'Disconnected',
+                          style: TextStyle(
+                            color: isConnected ? Colors.green : Colors.grey,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
                 leading: CircleAvatar(
                   backgroundColor: connection.isActive
@@ -200,13 +336,41 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
                   TextButton.icon(
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit'),
-                    onPressed: () => _editConnection(connection),
+                    onPressed: (_loadingConnectionId != null) || isConnected 
+                      ? null 
+                      : () => _editConnection(connection),
                   ),
                   if (!connection.isActive)
                     TextButton.icon(
                       icon: const Icon(Icons.check_circle),
                       label: const Text('Set Active'),
-                      onPressed: () => _setActiveConnection(connection),
+                      onPressed: (_loadingConnectionId != null) || isConnected
+                        ? null
+                        : () => _setActiveConnection(connection),
+                    ),
+                  // Connect/Disconnect Button
+                  _loadingConnectionId == connection.id
+                  ? SizedBox(
+                      height: 36,
+                      width: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isConnected ? Colors.blue : Colors.green
+                        ),
+                      ),
+                    )
+                  : TextButton.icon(
+                      icon: Icon(isConnected ? Icons.link_off : Icons.link),
+                      label: Text(isConnected ? 'Disconnect' : 'Connect'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: isConnected ? Colors.blue : Colors.green,
+                      ),
+                      onPressed: (_loadingConnectionId != null)
+                        ? null
+                        : isConnected
+                          ? _disconnectFromDatabase
+                          : () => _connectToDatabase(connection),
                     ),
                   TextButton.icon(
                     icon: const Icon(Icons.delete),
@@ -214,7 +378,9 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.errorColor,
                     ),
-                    onPressed: () => _deleteConnection(connection),
+                    onPressed: (_loadingConnectionId != null) || isConnected
+                      ? null
+                      : () => _deleteConnection(connection),
                   ),
                 ],
               ),

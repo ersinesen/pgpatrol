@@ -190,6 +190,17 @@ app.post("/api/connect", async (req, res) => {
       ssl = true,
     } = req.body;
 
+    console.log(
+      "Connect: ",
+      host,
+      port,
+      database,
+      username,
+      password,
+      name,
+      ssl,
+    );
+
     // Validate required parameters
     if (!host) {
       return res.status(400).json({ error: "Host is required" });
@@ -225,6 +236,8 @@ app.post("/api/connect", async (req, res) => {
     // If successful, register the connection temporarily
     const connectionId = `db_${Date.now()}`;
     const sessionId = getSessionId(req);
+
+    console.log("Session ID:", sessionId);
 
     // Build connection string from parameters with SSL option if needed
     const connectionString = ssl
