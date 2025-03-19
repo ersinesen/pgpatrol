@@ -674,7 +674,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildTabs() {
     return DefaultTabController(
-      length: 4,
+      length: 2,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -686,20 +686,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             indicatorColor: Theme.of(context).primaryColor,
             tabs: const [
               Tab(
-                icon: Icon(Icons.settings_applications),
-                text: 'Tables',
-              ),
-              Tab(
-                icon: Icon(Icons.memory),
-                text: 'Indices',
+                icon: Icon(Icons.analytics),
+                text: 'Analysis',
               ),
               Tab(
                 icon: Icon(Icons.sd_storage),
                 text: 'Queries',
-              ),
-              Tab(
-                icon: Icon(Icons.analytics),
-                text: 'Analysis',
               ),
             ],
           ),
@@ -711,20 +703,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text('Tables'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text('Indices'),
+                  child: _buildAnalysisSection(),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: _buildRecentQueriesSection(),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: _buildAnalysisSection(),
-                ),
+                
               ],
             ),
           ),
