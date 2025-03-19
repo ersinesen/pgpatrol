@@ -16,6 +16,7 @@ class DatabaseService {
   // Connection management
   PostgreSQLConnection? _connection;
   String? _connectionName;
+  String? _currentAnalysisKey; // Tracks the current analysis being performed
 
   // Flag to track if the service is connected to the database
   bool _isConnected = false;
@@ -345,11 +346,17 @@ class DatabaseService {
   Future<void> _fetchAnalysis(String analysisName) async {
     if (!_queries.containsKey(analysisName) || _connection == null) return;
 
+    // Set the current analysis key for column name extraction
+    _currentAnalysisKey = analysisName;
+    
     final sql = _queries[analysisName];
 
     try {
       final results = await _connection!.query(sql!);
-      _analysisResults[analysisName] = _processResults(results);
+      
+      // Use the improved query results processor that extracts column names
+      final processedResults = _processQueryResults(results);
+      _analysisResults[analysisName] = processedResults;
 
       print('Fetched $analysisName: ${_analysisResults[analysisName].length} rows');
 
@@ -382,6 +389,9 @@ class DatabaseService {
           return _analysisResultCache[key]!;
         }
       }
+      
+      // Set the current analysis key
+      _currentAnalysisKey = key;
       
       // Execute the query
       final sql = _queries[key]!;
