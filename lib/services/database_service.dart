@@ -7,6 +7,7 @@ import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../models/table_stats.dart';
 import '../models/server_connection.dart';
+import '../models/analysis_result.dart';
 import 'connection_manager.dart';
 
 /// Direct DatabaseService implementation that connects directly to PostgreSQL
@@ -41,6 +42,15 @@ class DatabaseService {
   List<QueryLog> _latestQueryLogs = [];
   ResourceStats _latestResourceStats = ResourceStats.initial();
   TableStats _latestTableStats = TableStats.initial();
+  
+  // Analysis results cache
+  Map<String, AnalysisResult> _analysisResultCache = {};
+  
+  // Analysis result stream controller
+  final _analysisResultController = StreamController<AnalysisResult>.broadcast();
+  
+  // Analysis result stream
+  Stream<AnalysisResult> get analysisResultStream => _analysisResultController.stream;
 
   // Analysis
   final StreamController<Map<String, dynamic>> _statsController = StreamController.broadcast();
@@ -349,6 +359,98 @@ class DatabaseService {
       print('Error fetching $analysisName: $e');
     }
   }
+  
+  /// Analyze specific PostgreSQL metrics based on the provided key
+  Future<AnalysisResult> analyze(String key) async {
+    if (!_isConnected || _connection == null) {
+      return AnalysisResult.empty(key);
+    }
+    
+    try {
+      // Check if we have a query for this key
+      if (!_queries.containsKey(key)) {
+        print('DatabaseService: No query defined for analysis key: $key');
+        return AnalysisResult.empty(key);
+      }
+      
+      // Check if we have a cached result
+      if (_analysisResultCache.containsKey(key)) {
+        final cacheTime = _analysisResultCache[key]!.timestamp;
+        final now = DateTime.now();
+        // If cache is less than 10 seconds old, return it
+        if (now.difference(cacheTime).inSeconds < 10) {
+          return _analysisResultCache[key]!;
+        }
+      }
+      
+      // Execute the query
+      final sql = _queries[key]!;
+      print('DatabaseService: Running analysis query for $key');
+      
+      final results = await _connection!.query(sql);
+      final processedResults = _processQueryResults(results);
+      
+      // Create analysis result
+      final analysisResult = AnalysisResult(
+        key: key,
+        timestamp: DateTime.now(),
+        data: processedResults,
+        success: true,
+        message: 'Analysis completed successfully',
+      );
+      
+      // Cache the result
+      _analysisResultCache[key] = analysisResult;
+      
+      // Emit the result through the stream
+      _analysisResultController.add(analysisResult);
+      
+      return analysisResult;
+    } catch (e) {
+      print('Error executing analysis: $e');
+      return AnalysisResult(
+        key: key,
+        timestamp: DateTime.now(),
+        data: [],
+        success: false,
+        message: 'Error: ${e.toString()}',
+      );
+    }
+  }
+  
+  // Convert PostgreSQL query results to a list of maps with column names
+  List<Map<String, dynamic>> _processQueryResults(List<List<dynamic>> results) {
+    if (results.isEmpty) {
+      return [];
+    }
+    
+    try {
+      // Get column descriptions (if available)
+      final columnNames = _connection?.columnDescriptions;
+      
+      // If we have column descriptions, use them
+      if (columnNames != null && columnNames.isNotEmpty) {
+        return results.map((row) {
+          final map = <String, dynamic>{};
+          for (var i = 0; i < row.length; i++) {
+            if (i < columnNames.length) {
+              map[columnNames[i].columnName] = row[i];
+            } else {
+              map['column_$i'] = row[i];
+            }
+          }
+          return map;
+        }).toList();
+      }
+      
+      // Fallback: use generic column names
+      return _processResults(results);
+    } catch (e) {
+      print('Error processing query results: $e');
+      // Fallback with simple processing
+      return _processResults(results);
+    }
+  }
 
   // Generic processor (adjust based on expected result structures)
   List<Map<String, dynamic>> _processResults(List<List<dynamic>> results) {
@@ -622,6 +724,7 @@ class DatabaseService {
     _resourceStatsController.close();
     _tableStatsController.close();
     _statsController.close();
+    _analysisResultController.close();
 
     // Close connection if open
     if (_isConnected && _connection != null) {
