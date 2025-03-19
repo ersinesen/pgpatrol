@@ -391,12 +391,15 @@ class DatabaseService {
       final processedResults = _processQueryResults(results);
       
       // Create analysis result
+      final columnsList = processedResults.isNotEmpty 
+        ? processedResults[0].keys.map((key) => key.toString()).toList() 
+        : <String>[];
       final analysisResult = AnalysisResult(
         key: key,
         timestamp: DateTime.now(),
         data: processedResults,
-        success: true,
-        message: 'Analysis completed successfully',
+        count: processedResults.length,
+        columns: columnsList,
       );
       
       // Cache the result
@@ -412,8 +415,8 @@ class DatabaseService {
         key: key,
         timestamp: DateTime.now(),
         data: [],
-        success: false,
-        message: 'Error: ${e.toString()}',
+        count: 0,
+        columns: <String>[],
       );
     }
   }
@@ -425,25 +428,8 @@ class DatabaseService {
     }
     
     try {
-      // Get column descriptions (if available)
-      final columnNames = _connection?.columnDescriptions;
-      
-      // If we have column descriptions, use them
-      if (columnNames != null && columnNames.isNotEmpty) {
-        return results.map((row) {
-          final map = <String, dynamic>{};
-          for (var i = 0; i < row.length; i++) {
-            if (i < columnNames.length) {
-              map[columnNames[i].columnName] = row[i];
-            } else {
-              map['column_$i'] = row[i];
-            }
-          }
-          return map;
-        }).toList();
-      }
-      
-      // Fallback: use generic column names
+      // PostgreSQLConnection doesn't provide column descriptions directly
+      // We'll use generic column names
       return _processResults(results);
     } catch (e) {
       print('Error processing query results: $e');
