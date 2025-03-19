@@ -533,9 +533,9 @@ const queries = {
   'high_dead_tuple': "SELECT relname, n_dead_tup, last_autovacuum FROM pg_stat_user_tables WHERE n_dead_tup > 1000 ORDER BY n_dead_tup DESC;",
   'vacuum_progress': "SELECT * FROM pg_stat_progress_vacuum;",
   'frequent_queries': "SELECT query, calls FROM pg_stat_statements ORDER BY calls DESC LIMIT 10;",
-  'index_bloat': "SELECT schemaname, relname, indexrelname, idx_blks_read, idx_blks_hit, idx_blks_read + idx_blks_hit as total_reads, idx_blks_read / (idx_blks_read + idx_blks_hit) as read_pct FROM pg_statio_user_indexes ORDER BY total_reads DESC LIMIT 10;",  
+  'index_bloat': "SELECT schemaname, relname, indexrelname, idx_blks_read, idx_blks_hit, idx_blks_read + idx_blks_hit as total_reads, CASE WHEN (idx_blks_read + idx_blks_hit) = 0 THEN 0 ELSE idx_blks_read / (idx_blks_read + idx_blks_hit) END as read_pct FROM pg_statio_user_indexes ORDER BY total_reads DESC LIMIT 10;",  
   'slow_queries': "SELECT query, total_exec_time, calls, mean_exec_time FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;",
-  'index_hit_rate': "SELECT sum(idx_scan) / sum(seq_scan + idx_scan) AS index_hit_rate FROM pg_stat_user_tables;",
+  'index_hit_rate': "SELECT CASE WHEN sum(seq_scan + idx_scan) = 0 THEN 0 ELSE sum(idx_scan) / sum(seq_scan + idx_scan) END AS index_hit_rate FROM pg_stat_user_tables;",
   'background_worker': "SELECT * FROM pg_stat_activity WHERE backend_type != 'client backend';",
   'active_locks': "SELECT pid, locktype, relation::regclass, mode, granted FROM pg_locks WHERE NOT granted;",
 };

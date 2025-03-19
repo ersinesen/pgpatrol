@@ -1,7 +1,7 @@
 {
   "default": {
-    "connectionString": "postgresql://localhost:5432/postgres",
-    "name": "Default Database",
+    "connectionString": "DATABASE_URL",
+    "name": "Replit Database",
     "isDefault": true
   }
 }

@@ -251,8 +251,18 @@ class DatabaseManager {
     
     // Create or return existing pool
     if (!this.activeConnections[sessionId][dbId]) {
+      // If the connectionString is "DATABASE_URL", use the environment variable
+      const connectionString = this.connections[dbId].connectionString === "DATABASE_URL" 
+        ? process.env.DATABASE_URL 
+        : this.connections[dbId].connectionString;
+      
+      console.log(`Creating pool for database ${dbId} with connection string pattern: ${connectionString ? connectionString.substring(0, 20) + '...' : 'undefined'}`);
+      
       this.activeConnections[sessionId][dbId] = new Pool({
-        connectionString: this.connections[dbId].connectionString
+        connectionString: connectionString,
+        ssl: {
+          rejectUnauthorized: false
+        }
       });
       
       // Initialize pg_stat_statements extension if possible
