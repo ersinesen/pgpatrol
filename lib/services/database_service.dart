@@ -428,8 +428,17 @@ class DatabaseService {
     }
     
     try {
-      // PostgreSQLConnection doesn't provide column descriptions directly
-      // We'll use generic column names
+      // Extract column names from the active query
+      // For direct PostgreSQL connection, we need to parse the column names from the SQL
+      String? currentQuery = _queries[_currentAnalysisKey];
+      if (currentQuery != null) {
+        List<String>? columnNames = _extractColumnNames(currentQuery);
+        if (columnNames != null && columnNames.length > 0) {
+          return _processResultsWithColumns(results, columnNames);
+        }
+      }
+      
+      // Fallback if we can't extract column names
       return _processResults(results);
     } catch (e) {
       print('Error processing query results: $e');
@@ -437,13 +446,132 @@ class DatabaseService {
       return _processResults(results);
     }
   }
+  
+  // Extract column names from SQL query
+  List<String>? _extractColumnNames(String sql) {
+    try {
+      // Clean up the SQL and extract column section
+      sql = sql.replaceAll('\n', ' ').replaceAll('\r', ' ');
+      
+      // Handle SELECT * case
+      if (sql.toLowerCase().contains('select *')) {
+        // For SELECT *, we can't determine column names from SQL
+        // We'll use common column names based on the analysis key
+        return _getDefaultColumnsForKey(_currentAnalysisKey);
+      }
+      
+      // Extract column names from SELECT clause
+      final selectMatch = RegExp(r'SELECT\s+(.*?)\s+FROM', caseSensitive: false).firstMatch(sql);
+      if (selectMatch != null && selectMatch.groupCount >= 1) {
+        String columnsSection = selectMatch.group(1)!;
+        
+        // Split by commas, but handle special cases (like functions with commas)
+        List<String> columns = [];
+        int depth = 0;
+        String current = '';
+        
+        for (int i = 0; i < columnsSection.length; i++) {
+          var char = columnsSection[i];
+          if (char == '(' || char == '{') depth++;
+          else if (char == ')' || char == '}') depth--;
+          
+          if (char == ',' && depth == 0) {
+            columns.add(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        
+        if (current.trim().isNotEmpty) {
+          columns.add(current.trim());
+        }
+        
+        // Extract column names or aliases
+        return columns.map((col) {
+          col = col.trim();
+          
+          // Check for AS keyword
+          final asMatch = RegExp(r'.*\s+AS\s+([^\s,]+)$', caseSensitive: false).firstMatch(col);
+          if (asMatch != null && asMatch.groupCount >= 1) {
+            return asMatch.group(1)!.replaceAll('"', '').replaceAll('\'', '');
+          }
+          
+          // No AS? Check if it's a direct column name
+          if (!col.contains(' ') && !col.contains('(')) {
+            return col.replaceAll('"', '').replaceAll('\'', '');
+          }
+          
+          // For complex expressions, take the last part after a dot or space
+          final parts = col.split(RegExp(r'[\.\s]'));
+          return parts.last.replaceAll('"', '').replaceAll('\'', '');
+        }).toList();
+      }
+      
+      // Fallback - return null if we can't parse the query
+      return null;
+    } catch (e) {
+      print('Error extracting column names: $e');
+      return null;
+    }
+  }
+  
+  // Get default column names for known analysis types
+  List<String>? _getDefaultColumnsForKey(String? key) {
+    if (key == null) return null;
+    
+    // Common column names for each analysis type
+    switch (key) {
+      case 'deadlock':
+        return ['pid', 'usename', 'application_name', 'client_addr', 'query_start', 'state', 'wait_event', 'wait_event_type', 'query'];
+      case 'idle':
+        return ['pid', 'usename', 'query_start', 'state'];
+      case 'long_tables':
+        return ['schemaname', 'relname', 'n_live_tup'];
+      case 'index_usage':
+        return ['relname', 'idx_scan', 'idx_tup_read', 'idx_tup_fetch'];
+      case 'large_tables':
+      case 'large_indices':
+        return ['relname', 'total_size'];
+      case 'blocked_queries':
+        return ['pid', 'usename', 'query_start', 'state', 'wait_event', 'query'];
+      case 'max_connections':
+        return ['max_connections'];
+      default:
+        return null;
+    }
+  }
 
-  // Generic processor (adjust based on expected result structures)
-  List<Map<String, dynamic>> _processResults(List<List<dynamic>> results) {
+  // Process results with known column names
+  List<Map<String, dynamic>> _processResultsWithColumns(List<List<dynamic>> results, List<String> columnNames) {
     return results.map((row) {
-      return {
-        for (var i = 0; i < row.length; i++) 'col_$i': row[i],
-      };
+      final Map<String, dynamic> resultMap = {};
+      for (var i = 0; i < row.length && i < columnNames.length; i++) {
+        resultMap[columnNames[i]] = row[i];
+      }
+      
+      // Add any remaining columns with generic names
+      if (row.length > columnNames.length) {
+        for (var i = columnNames.length; i < row.length; i++) {
+          resultMap['col_$i'] = row[i];
+        }
+      }
+      
+      return resultMap;
+    }).toList();
+  }
+
+  // Fallback processing with generic column names
+  List<Map<String, dynamic>> _processResults(List<List<dynamic>> results) {
+    // Generate generic column names
+    // This matches the format returned by the API but uses generic column names
+    return results.map((row) {
+      final Map<String, dynamic> resultMap = {};
+      for (var i = 0; i < row.length; i++) {
+        // Use the same column naming convention as the API
+        resultMap['col_$i'] = row[i];
+      }
+      return resultMap;
     }).toList();
   }
 

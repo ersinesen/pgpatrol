@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/analysis_result.dart';
 import '../services/api_database_service.dart';
+import '../services/database_service.dart';
 import '../widgets/analysis_table.dart';
 
 class AnalysisScreen extends StatefulWidget {
-  final ApiDatabaseService databaseService;
+  final dynamic databaseService;
   final String? initialAnalysisType;
 
   const AnalysisScreen({
