@@ -669,11 +669,11 @@ class ApiDatabaseService {
     }
     
     try {
+      // Use query parameter instead of header for key
       final response = await http.get(
-        Uri.parse('$baseUrl/analyze'),
+        Uri.parse('$baseUrl/analyze?key=$key'),
         headers: {
           'X-Session-ID': _sessionId!,
-          'X-Analysis-Key': key,
         },
       );
       
