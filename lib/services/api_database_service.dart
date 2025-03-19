@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/connection_status.dart';
+import '../models/analysis_result.dart';
 import '../models/database_stats.dart';
 import '../models/table_stats.dart';
 import '../models/query_log.dart';
@@ -49,8 +50,8 @@ class ApiDatabaseService {
   
   // Constructor
   ApiDatabaseService({
-    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
-    //this.baseUrl = 'http://localhost:3001/api',
+    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3002/api',
+    //this.baseUrl = 'http://localhost:3002/api',
   }) {
     // Will be initialized after connection
   }
@@ -649,4 +650,43 @@ class ApiDatabaseService {
   Stream<TableStats> get tableStatsStream => _tableStatsController.stream;
   Stream<List<QueryLog>> get queryLogsStream => _queryLogsController.stream;
   Stream<ResourceStats> get resourceStatsStream => _resourceStatsController.stream;
+  
+  /// Execute database analysis with a specific key
+  /// 
+  /// The key parameter specifies which analysis to run on the backend.
+  /// Possible values include:
+  /// - 'deadlocks': Shows deadlock information
+  /// - 'long_running_queries': Shows queries running for more than a specific duration
+  /// - 'table_bloat': Shows tables with bloat (unused space)
+  /// - 'index_usage': Shows index usage statistics
+  /// - 'cache_hit_ratio': Shows cache hit ratio information
+  /// 
+  /// @param key The analysis key to execute
+  /// @return AnalysisResult containing the analysis data
+  Future<AnalysisResult> analyze(String key) async {
+    if (_sessionId == null || !_isConnected) {
+      return AnalysisResult.empty(key);
+    }
+    
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/analyze'),
+        headers: {
+          'X-Session-ID': _sessionId!,
+          'X-Analysis-Key': key,
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return AnalysisResult.fromJson(data);
+      } else {
+        print('Error executing analysis: ${response.statusCode}');
+        return AnalysisResult.empty(key);
+      }
+    } catch (e) {
+      print('Exception executing analysis: $e');
+      return AnalysisResult.empty(key);
+    }
+  }
 }

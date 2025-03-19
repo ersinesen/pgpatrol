@@ -17,6 +17,7 @@ import '../widgets/query_log_table.dart';
 import '../widgets/status_indicator.dart';
 import '../main.dart';
 import 'manage_connections_screen.dart';
+import 'analysis_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final bool isDirectConnection;
@@ -673,7 +674,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildTabs() {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -696,6 +697,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 icon: Icon(Icons.sd_storage),
                 text: 'Queries',
               ),
+              Tab(
+                icon: Icon(Icons.analytics),
+                text: 'Analysis',
+              ),
             ],
           ),
 
@@ -715,6 +720,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: _buildRecentQueriesSection(),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: _buildAnalysisSection(),
                 ),
               ],
             ),
@@ -863,5 +872,134 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else {
       return AppTheme.errorColor;
     }
+  }
+
+  Widget _buildAnalysisSection() {
+    if (!_databaseService.isConnected()) {
+      return Center(
+        child: Text(
+          'Connect to a database to view analysis',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    // Analysis selection buttons
+    final analysisTypes = [
+      {'key': 'index_usage', 'title': 'Index Usage', 'icon': Icons.show_chart},
+      {'key': 'long_tables', 'title': 'Large Tables', 'icon': Icons.table_chart},
+      {'key': 'deadlock', 'title': 'Deadlocks', 'icon': Icons.lock},
+      {'key': 'blocked_queries', 'title': 'Blocked Queries', 'icon': Icons.pause_circle},
+      {'key': 'high_dead_tuple', 'title': 'Dead Tuples', 'icon': Icons.delete_outline},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Database Analysis',
+          style: Theme.of(context).textTheme.displaySmall,
+        ),
+        const SizedBox(height: 16),
+        
+        Text(
+          'Select an analysis type to view detailed results:',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 16),
+        
+        // Analysis type grid
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: analysisTypes.map((type) => 
+            _buildAnalysisCard(
+              title: type['title'] as String,
+              icon: type['icon'] as IconData,
+              key: type['key'] as String,
+            )
+          ).toList(),
+        ),
+        
+        const SizedBox(height: 24),
+        
+        // View All button
+        Center(
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.analytics),
+            label: const Text('View Full Analysis Dashboard'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AnalysisScreen(
+                    databaseService: _databaseService,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnalysisCard({
+    required String title,
+    required IconData icon,
+    required String key,
+  }) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AnalysisScreen(
+              databaseService: _databaseService,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 150,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: Theme.of(context).primaryColor,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
