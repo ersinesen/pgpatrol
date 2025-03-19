@@ -529,6 +529,7 @@ const queries = {
   'large_tables':"SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS total_size FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;",
   'large_indices': "SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS total_size FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;",
   'blocked_queries': "SELECT pid, usename, query_start, state, wait_event, query FROM pg_stat_activity WHERE wait_event IS NOT NULL;",
+  'deadlock': "SELECT * FROM pg_stat_activity WHERE wait_event_type = 'Lock';",
   'max_connections': "SHOW max_connections;",
   'high_dead_tuple': "SELECT relname, n_dead_tup, last_autovacuum FROM pg_stat_user_tables WHERE n_dead_tup > 1000 ORDER BY n_dead_tup DESC;",
   'vacuum_progress': "SELECT * FROM pg_stat_progress_vacuum;",

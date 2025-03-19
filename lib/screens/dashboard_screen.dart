@@ -962,6 +962,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           MaterialPageRoute(
             builder: (context) => AnalysisScreen(
               databaseService: _databaseService,
+              initialAnalysisType: key,
             ),
           ),
         );

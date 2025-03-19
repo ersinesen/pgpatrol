@@ -5,10 +5,12 @@ import '../widgets/analysis_table.dart';
 
 class AnalysisScreen extends StatefulWidget {
   final ApiDatabaseService databaseService;
+  final String? initialAnalysisType;
 
   const AnalysisScreen({
     Key? key,
     required this.databaseService,
+    this.initialAnalysisType,
   }) : super(key: key);
 
   @override
@@ -16,7 +18,7 @@ class AnalysisScreen extends StatefulWidget {
 }
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
-  String selectedAnalysisType = 'index_usage';
+  late String selectedAnalysisType;
   late Future<AnalysisResult> _analysisFuture;
   bool _isLoading = false;
 
@@ -49,6 +51,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   @override
   void initState() {
     super.initState();
+    // Initialize with the provided initial type or default to 'index_usage'
+    selectedAnalysisType = widget.initialAnalysisType ?? 'index_usage';
     _loadAnalysis();
   }
 
