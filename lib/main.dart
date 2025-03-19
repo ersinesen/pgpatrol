@@ -4,12 +4,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/api_database_service.dart';
+import 'services/database_service.dart';
+
 import 'services/connection_manager.dart';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 
 void main() async {
   // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Get the platform
+  final bool useDirectConnection = !kIsWeb && Platform.isWindows;
+  print('Main: useDirectConnection = $useDirectConnection');
+
   // Create and initialize the theme provider
   final themeProvider = ThemeProvider();
   await themeProvider.initializeTheme();
@@ -18,19 +27,37 @@ void main() async {
   await ConnectionManager().initialize();
   print('Main: ConnectionManager initialized');
   
-  // Create the database service
-  final databaseService = ApiDatabaseService();
-  
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => themeProvider),
-        Provider<ApiDatabaseService>.value(value: databaseService),
-        Provider<ConnectionManager>.value(value: ConnectionManager()),
-      ],
-      child: const PostgreSQLMonitorApp(),
-    ),
-  );
+  // Create the app with the appropriate database service
+  if (useDirectConnection) {
+    print('Using direct database connection for Windows');
+    final databaseService = DatabaseService();
+    
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => themeProvider),
+          Provider<DatabaseService>.value(value: databaseService),
+          Provider<ConnectionManager>.value(value: ConnectionManager()),
+        ],
+        child: const PostgreSQLMonitorApp(isDirectConnection: true),
+      ),
+    );
+  } else {
+    print('Using API database service for ${kIsWeb ? 'web' : Platform.operatingSystem}');
+    final databaseService = ApiDatabaseService();
+    
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => themeProvider),
+          Provider<ApiDatabaseService>.value(value: databaseService),
+          Provider<ConnectionManager>.value(value: ConnectionManager()),
+        ],
+        child: const PostgreSQLMonitorApp(isDirectConnection: false),
+      ),
+    );
+  }
+
 }
 
 // Create a class to manage theme state with persistence
@@ -94,7 +121,9 @@ class ThemeProvider extends ChangeNotifier {
 }
 
 class PostgreSQLMonitorApp extends StatelessWidget {
-  const PostgreSQLMonitorApp({Key? key}) : super(key: key);
+  final bool isDirectConnection;
+  
+  const PostgreSQLMonitorApp({Key? key, required this.isDirectConnection}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +136,7 @@ class PostgreSQLMonitorApp extends StatelessWidget {
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
           debugShowCheckedModeBanner: false,
-          home: const DashboardScreen(),
+          home: DashboardScreen(isDirectConnection: isDirectConnection),
         );
       },
     );

@@ -1,7 +1,7 @@
 REM Windows test utility for the backend
 
 REM get an alive session id
-SET SESSIOND=29c0c2ed-68c4-4835-8552-4feaaa0841e0
+SET SESSIOND=28299d36-70f6-4887-9f9d-ef0aea5802de
 
 REM Resource stats
 curl -s localhost:3001/api/resource-stats?sessionId=%SESSIOND%

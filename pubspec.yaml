@@ -1,5 +1,5 @@
-name: postgresql_monitor
-description: A minimalist, Apple-inspired PostgreSQL monitoring application built with Flutter and Dart.
+name: pgpatrol
+description: A minimalist, PostgreSQL monitoring application built with Flutter and Dart.
 publish_to: 'none' 
 version: 1.0.0+1
 

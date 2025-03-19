@@ -7,6 +7,8 @@ import '../models/table_stats.dart';
 import '../models/query_log.dart';
 import '../models/resource_stats.dart';
 import '../services/api_database_service.dart';
+import '../services/database_service.dart';
+
 import '../services/connection_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/metric_card.dart';
@@ -17,20 +19,31 @@ import '../main.dart';
 import 'manage_connections_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+  final bool isDirectConnection;
+
+  const DashboardScreen({Key? key, required this.isDirectConnection}) : super(key: key);
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late final ApiDatabaseService _databaseService;
-  
+  late final dynamic _databaseService;
+  late bool _isDirectConnection;
+
   @override
   void initState() {
     super.initState();
-    // Get the database service from the provider
-    _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+    _isDirectConnection = widget.isDirectConnection;
+
+    // Get the appropriate database service from the provider based on the connection type
+    if (widget.isDirectConnection) {
+      _databaseService = Provider.of<DatabaseService>(context, listen: false);
+      print('Dashboard: Using direct database connection');
+    } else {
+      _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+      print('Dashboard: Using API database connection');
+    }
     
     // Listen for connection changes
     _connectionManager.connectionsStream.listen((connections) {
@@ -150,7 +163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const ManageConnectionsScreen(),
+        builder: (context) => ManageConnectionsScreen(isDirectConnection: _isDirectConnection),
       ),
     ).then((_) {
       // Refresh state when returning from connection management
@@ -181,6 +194,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 48,
                   height: 48,
                 ),
+                const SizedBox(width: 8),
                 const Text('pgpatrol'),
                 if (status.connectionName != 'None') ...[
                   const SizedBox(width: 8),
@@ -246,20 +260,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildConnectionStatusSection(),
-                const SizedBox(height: 24),
-                _buildDatabaseStatsSection(),
-                const SizedBox(height: 24),
-                _buildResourceUsageSection(),
-                const SizedBox(height: 24),
-                _buildRecentQueriesSection(),
-                const SizedBox(height: 24),
-                _buildTableStatsSection(),
-              ],
-            ),
+            child: 
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildConnectionStatusSection(),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildResourceUsageSection(),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildDatabaseStatsSection(),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(
+                    height: 600,
+                    child: _buildTabs(),
+                  ),
+                ]
+              ),
           ),
         ),
       ),
@@ -533,7 +581,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: MetricCard(
                       title: 'CPU USAGE',
                       value: '${resourceStats.cpuUsage.toStringAsFixed(1)}%',
-                      icon: Icons.memory_rounded,
+                      icon: Icons.settings_applications,
                       iconColor: _getUtilizationColor(resourceStats.cpuUsage),
                     ),
                   ),
@@ -565,13 +613,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 unselectedLabelColor: Colors.grey,
                 indicatorColor: Theme.of(context).primaryColor,
                 tabs: const [
-                  Tab(text: 'CPU'),
-                  Tab(text: 'Memory'),
-                  Tab(text: 'Disk'),
+                  Tab(
+                    icon: Icon(Icons.settings_applications),
+                    text: 'CPU',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.memory),
+                    text: 'Memory',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.sd_storage),
+                    text: 'Disk',
+                  ),
                 ],
               ),
 
-              // Wrap TabBarView inside Expanded to avoid height issues
+              // Wrap TabBarView 
               SizedBox(
                 height: 300,
                 child: TabBarView(
@@ -614,95 +671,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-/*
-  Widget _buildResourceUsageSection() {
-    return StreamBuilder<ResourceStats>(
-      stream: _databaseService.resourceStatsStream,
-      initialData: _databaseService.getResourceStats(),
-      builder: (context, snapshot) {
-        final resourceStats = snapshot.data ?? ResourceStats.initial();
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Resource Utilization',
-              style: Theme.of(context).textTheme.displaySmall,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: MetricCard(
-                    title: 'CPU USAGE',
-                    value: '${resourceStats.cpuUsage.toStringAsFixed(1)}%',
-                    icon: Icons.memory_rounded,
-                    iconColor: _getUtilizationColor(resourceStats.cpuUsage),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: MetricCard(
-                    title: 'MEMORY USAGE',
-                    value: '${resourceStats.memoryUsage.toStringAsFixed(1)} MB',
-                    icon: Icons.memory_rounded,
-                    iconColor: AppTheme.primaryColor,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: MetricCard(
-                    title: 'DISK USAGE',
-                    value: '${resourceStats.diskUsage.toStringAsFixed(2)} GB',
-                    icon: Icons.storage_rounded,
-                    iconColor: _getUtilizationColor(resourceStats.diskUsage),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // TabBar for selecting different charts
-            TabBar(
-              labelColor: Theme.of(context).primaryColor,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Theme.of(context).primaryColor,
-              tabs: const [
-                Tab(text: 'CPU'),
-                Tab(text: 'Memory'),
-                Tab(text: 'Disk'),
-              ],
-            ),
-            // TabBarView to switch between different charts
-            SizedBox(
-              height: 200, // Adjust height as needed
-              child: TabBarView(
-                children: [
-                  PerformanceChart(
-                    title: 'CPU USAGE OVER TIME',
-                    data: resourceStats.historicalCpuUsage,
-                    lineColor: _getUtilizationColor(resourceStats.cpuUsage),
-                    unit: '%',
-                  ),
-                  PerformanceChart(
-                    title: 'MEMORY USAGE OVER TIME',
-                    data: resourceStats.historicalCpuUsage,
-                    lineColor: _getUtilizationColor(resourceStats.memoryUsage),
-                    unit: 'MB',
-                  ),
-                  PerformanceChart(
-                    title: 'DISK USAGE OVER TIME',
-                    data: resourceStats.historicalCpuUsage,
-                    lineColor: _getUtilizationColor(resourceStats.diskUsage),
-                    unit: 'GB',
-                  ),
-                ],
+  Widget _buildTabs() {
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          
+          // TabBar for selecting different charts
+          TabBar(
+            labelColor: Theme.of(context).primaryColor,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Theme.of(context).primaryColor,
+            tabs: const [
+              Tab(
+                icon: Icon(Icons.settings_applications),
+                text: 'Tables',
               ),
+              Tab(
+                icon: Icon(Icons.memory),
+                text: 'Indices',
+              ),
+              Tab(
+                icon: Icon(Icons.sd_storage),
+                text: 'Queries',
+              ),
+            ],
+          ),
+
+          // Wrap TabBarView inside Expanded to avoid height issues
+          Expanded(
+            child: TabBarView(
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text('Tables'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text('Indices'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: _buildRecentQueriesSection(),
+                ),
+              ],
             ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
-  }*/
+  }
 
   Widget _buildRecentQueriesSection() {
     return StreamBuilder<List<QueryLog>>(

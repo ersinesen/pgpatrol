@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "postgresql_monitor" "\0"
+            VALUE "CompanyName", "com.esenbil" "\0"
+            VALUE "FileDescription", "pgpatrol" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "postgresql_monitor" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "postgresql_monitor.exe" "\0"
-            VALUE "ProductName", "postgresql_monitor" "\0"
+            VALUE "InternalName", "pgpatrol" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 com.esenbil. All rights reserved." "\0"
+            VALUE "OriginalFilename", "pgpatrol.exe" "\0"
+            VALUE "ProductName", "pgpatrol" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

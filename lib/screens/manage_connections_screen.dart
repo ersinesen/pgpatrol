@@ -4,11 +4,15 @@ import '../models/server_connection.dart';
 import '../models/connection_status.dart';
 import '../services/connection_manager.dart';
 import '../services/api_database_service.dart';
+import '../services/database_service.dart';
+
 import '../theme/app_theme.dart';
 import 'server_connection_screen.dart';
 
 class ManageConnectionsScreen extends StatefulWidget {
-  const ManageConnectionsScreen({Key? key}) : super(key: key);
+  final bool isDirectConnection;
+
+  const ManageConnectionsScreen({Key? key, required this.isDirectConnection}) : super(key: key);
 
   @override
   _ManageConnectionsScreenState createState() => _ManageConnectionsScreenState();
@@ -17,8 +21,8 @@ class ManageConnectionsScreen extends StatefulWidget {
 class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
   // Get ConnectionManager as a singleton
   final ConnectionManager _connectionManager = ConnectionManager();
-  // Will get ApiDatabaseService from provider
-  late final ApiDatabaseService _databaseService;
+  // Will get database service from provider
+  late final dynamic _databaseService;
   
   List<ServerConnection> _connections = [];
   String? _connectedId; // Track which connection is currently connected
@@ -27,8 +31,14 @@ class _ManageConnectionsScreenState extends State<ManageConnectionsScreen> {
   @override
   void initState() {
     super.initState();
-    // Get the shared database service from provider
-    _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+    // Get the appropriate database service from the provider based on the connection type
+    if (widget.isDirectConnection) {
+      _databaseService = Provider.of<DatabaseService>(context, listen: false);
+      print('Dashboard: Using direct database connection');
+    } else {
+      _databaseService = Provider.of<ApiDatabaseService>(context, listen: false);
+      print('Dashboard: Using API database connection');
+    }
     
     _loadConnections();
     _syncConnectionState();

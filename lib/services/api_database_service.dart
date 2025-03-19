@@ -49,8 +49,8 @@ class ApiDatabaseService {
   
   // Constructor
   ApiDatabaseService({
-    //this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
-    this.baseUrl = 'http://localhost:3001/api',
+    this.baseUrl = 'https://105d264d-0bf6-4c6c-bb96-741253286912-00-2qmy6a592851x.worf.replit.dev:3001/api',
+    //this.baseUrl = 'http://localhost:3001/api',
   }) {
     // Will be initialized after connection
   }
@@ -71,7 +71,7 @@ class ApiDatabaseService {
           'username': connection.username,
           'password': connection.password,
           'name': connection.name,
-          'ssl': false, // Enable SSL by default
+          'ssl': true, // Enable SSL by default
         }),
       );
       
@@ -212,7 +212,7 @@ class ApiDatabaseService {
           'database': connection.database,
           'username': connection.username,
           'password': connection.password,
-          'ssl': false, // Enable SSL by default
+          'ssl': true, // Enable SSL by default
         }),
       );
       

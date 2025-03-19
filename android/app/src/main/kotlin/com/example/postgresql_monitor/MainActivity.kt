@@ -1,4 +1,4 @@
-package com.example.postgresql_monitor
+package com.esenbil.pgpatrol
 
 import io.flutter.embedding.android.FlutterActivity
 

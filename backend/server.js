@@ -519,6 +519,57 @@ app.get("/api/table-stats", async (req, res) => {
   }
 });
 
+// Analysis
+const queries = {
+  'deadlock': "SELECT * FROM pg_stat_activity WHERE wait_event_type = 'Lock'",
+  'total_tables': "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'",
+  'idle': "SELECT pid, usename, query_start, state FROM pg_stat_activity WHERE state = 'idle in transaction';",
+  'long_tables': "SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10;",
+  'index_usage': "SELECT relname, idx_scan, idx_tup_read, idx_tup_fetch FROM pg_stat_user_indexes ORDER BY idx_scan DESC LIMIT 10;",
+  'large_tables':"SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS total_size FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;",
+  'large_indices': "SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS total_size FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;",
+  'blocked_queries': "SELECT pid, usename, query_start, state, wait_event, query FROM pg_stat_activity WHERE wait_event IS NOT NULL;",
+  'max_connections': "SHOW max_connections;",
+  'high_dead_tuple': "SELECT relname, n_dead_tup, last_autovacuum FROM pg_stat_user_tables WHERE n_dead_tup > 1000 ORDER BY n_dead_tup DESC;",
+  'vacuum_progress': "SELECT * FROM pg_stat_progress_vacuum;",
+  'frequent_queries': "SELECT query, calls FROM pg_stat_statements ORDER BY calls DESC LIMIT 10;",
+  'index_bloat': "SELECT schemaname, relname, indexrelname, idx_blks_read, idx_blks_hit, idx_blks_read + idx_blks_hit as total_reads, idx_blks_read / (idx_blks_read + idx_blks_hit) as read_pct FROM pg_statio_user_indexes ORDER BY total_reads DESC LIMIT 10;",  
+  'slow_queries': "SELECT query, total_exec_time, calls, mean_exec_time FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;",
+  'index_hit_rate': "SELECT sum(idx_scan) / sum(seq_scan + idx_scan) AS index_hit_rate FROM pg_stat_user_tables;",
+  'background_worker': "SELECT * FROM pg_stat_activity WHERE backend_type != 'client backend';",
+  'active_locks': "SELECT pid, locktype, relation::regclass, mode, granted FROM pg_locks WHERE NOT granted;",
+};
+
+app.get("/api/analyze", async (req, res) => {
+  try {
+    const sessionId = getSessionId(req);
+    const dbId = dbManager.getCurrentDatabase(sessionId);
+    const pool = dbManager.getPool(dbId, sessionId);
+
+    const key = req.query.key;
+    if (!queries[key]) {
+      return res.status(404).json({ error: "Key not found" });
+    }
+    const sql = queries[key];
+    console.log(sql);
+    const ret = await pool.query(sql);
+
+    let result = {
+      timestamp: new Date().toISOString(),
+      key: key,
+      count: ret.rows.length,
+      data: ret.rows,
+      columns: ret.fields.map(f => f.name),
+    };
+
+    res.json(result);
+
+  } catch (error) {
+    console.error("Error running analyze:", error);
+    res.status(500).json({ error: "Failed to run analyze" });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, "0.0.0.0", () => {
