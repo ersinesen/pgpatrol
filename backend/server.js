@@ -571,7 +571,7 @@ app.get("/api/analyze", async (req, res) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API server listening on port ${PORT}`);
 });
