@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../models/connection_status.dart';
 import '../models/database_stats.dart';
 import '../models/table_stats.dart';
@@ -178,6 +180,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _openSupportPage() async {
+    const url = 'https://buymeacoffee.com/esenbil';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), webOnlyWindowName: '_blank'); // Opens in new tab for web
+    } else {
+      throw 'Could not launch $url';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -251,6 +262,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
             tooltip: 'Toggle theme',
           ),
+          // Support
+          IconButton(
+            icon: const Icon(Icons.favorite),
+            onPressed: _openSupportPage,
+            tooltip: 'Support the developer',
+          )
         ],
       ),
       body: RefreshIndicator(
