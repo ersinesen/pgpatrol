@@ -645,37 +645,37 @@ class DatabaseService {
     }
   }
 
+  Future<double> getPostgresMemoryUsage(PostgreSQLConnection connection) async {
+    // Query used memory from PostgreSQL
+    final usedMemResults = await connection.query(
+      "SELECT sum(pg_database_size(datname)) AS used_mem FROM pg_database;"
+    );
+
+    double usedMem = 0;
+    if (usedMemResults.isNotEmpty) {
+      usedMem = double.tryParse(usedMemResults[0][0].toString()) ?? 0;
+    }
+
+    usedMem = usedMem / (1024*1024*1024);
+    print("PostgreSQL Used Memory: ${usedMem} GB");
+
+    return usedMem;
+  }
+
   Future<void> _fetchResourceStats() async {
     if (!_isConnected || _connection == null) return;
 
     try {
       final now = DateTime.now();
 
-      // We don't have direct CPU usage in PostgreSQL, so we'll use active queries as a proxy
-      final cpuResults = await _connection!.query(
-        "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid()"
-      );
-      final activeQueries = cpuResults.isNotEmpty 
-          ? cpuResults[0][0] as int 
-          : 0;
-
-      // Calculate a percentage based on active queries (this is just an approximation)
-      final cpuUsage = activeQueries * 5.0; // Each query uses ~5% CPU (arbitrary)
-
-      // Get memory stats from PostgreSQL
-      final memResults = await _connection!.query(
-        "SELECT setting FROM pg_settings WHERE name = 'shared_buffers'"
-      );
-      final sharedBuffersString = memResults.isNotEmpty 
-          ? memResults[0][0].toString() 
-          : '8MB';
-
-      // Parse shared_buffers and convert to MB
-      final memoryUsage = _parseSize(sharedBuffersString);
-
+      // We don't have direct CPU usage in PostgreSQL
+      final cpuUsage = 0.0; // Placeholder
+      
+      // Get used memory from PostgreSQL
+      double memoryUsage = await getPostgresMemoryUsage(_connection!);
+      
       // Get disk stats - we'll use database size as a proxy for disk usage
-      final diskSize = _latestDatabaseStats.dbSize;
-      final diskPercent = diskSize / 100.0; // Convert to percentage (assuming 100MB = 100%)
+      final diskSize = _latestDatabaseStats.dbSize / 1024; // GB
 
       // Update historical data (keep the last 30 points)
       final newCpuHistory = List<TimeSeriesData>.from(_latestResourceStats.historicalCpuUsage);
@@ -684,7 +684,7 @@ class DatabaseService {
 
       newCpuHistory.add(TimeSeriesData(time: now, value: cpuUsage));
       newMemoryHistory.add(TimeSeriesData(time: now, value: memoryUsage));
-      newDiskHistory.add(TimeSeriesData(time: now, value: diskPercent));
+      newDiskHistory.add(TimeSeriesData(time: now, value: diskSize));
 
       // Keep only the most recent 30 data points
       if (newCpuHistory.length > 30) newCpuHistory.removeAt(0);
@@ -694,7 +694,7 @@ class DatabaseService {
       final stats = ResourceStats(
         cpuUsage: cpuUsage,
         memoryUsage: memoryUsage,
-        diskUsage: diskPercent,
+        diskUsage: diskSize,
         historicalCpuUsage: newCpuHistory,
         historicalMemoryUsage: newMemoryHistory,
         historicalDiskUsage: newDiskHistory,

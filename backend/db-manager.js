@@ -108,7 +108,7 @@ class DatabaseManager {
       // Set a shorter connection timeout for testing
       connectionTimeoutMillis: 5000,
       // Add SSL options
-      ssl: ssl ? { rejectUnauthorized: false } : false
+      //ssl: ssl ? { rejectUnauthorized: false } : false
     };
     
     const testPool = new Pool(config);
@@ -260,9 +260,9 @@ class DatabaseManager {
       
       this.activeConnections[sessionId][dbId] = new Pool({
         connectionString: connectionString,
-        ssl: {
-          rejectUnauthorized: false
-        }
+        //ssl: {
+        //  rejectUnauthorized: false
+        //}
       });
       
       // Initialize pg_stat_statements extension if possible

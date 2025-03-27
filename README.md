@@ -30,6 +30,8 @@ Build
 
 ```
 flutter build windows
+flutter build windows --release
+
 ```
 
 ## Test
@@ -42,3 +44,8 @@ Host: ep-hidden-cell-a6sicgzm.us-west-2.aws.neon.tech
 Database: neondb
 Username: neondb_owner
 Password: npg_MFngW07NVOTC
+
+
+## Links
+
+[PostgreSQL monitoring](https://www.postgresql.fastware.com/postgresql-insider-mon-met)

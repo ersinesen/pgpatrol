@@ -567,7 +567,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final resourceStats = snapshot.data ?? ResourceStats.initial();
 
         return DefaultTabController(
-          length: 3,
+          length: 2,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -580,17 +580,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   Expanded(
                     child: MetricCard(
-                      title: 'CPU USAGE',
-                      value: '${resourceStats.cpuUsage.toStringAsFixed(1)}%',
-                      icon: Icons.settings_applications,
-                      iconColor: _getUtilizationColor(resourceStats.cpuUsage),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: MetricCard(
                       title: 'MEMORY USAGE',
-                      value: '${resourceStats.memoryUsage.toStringAsFixed(1)} MB',
+                      value: '${resourceStats.memoryUsage.toStringAsFixed(1)} GB',
                       icon: Icons.memory_rounded,
                       iconColor: AppTheme.primaryColor,
                     ),
@@ -615,10 +606,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 indicatorColor: Theme.of(context).primaryColor,
                 tabs: const [
                   Tab(
-                    icon: Icon(Icons.settings_applications),
-                    text: 'CPU',
-                  ),
-                  Tab(
                     icon: Icon(Icons.memory),
                     text: 'Memory',
                   ),
@@ -638,19 +625,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: PerformanceChart(
-                        title: 'CPU USAGE OVER TIME',
-                        data: resourceStats.historicalCpuUsage,
-                        lineColor: _getUtilizationColor(resourceStats.cpuUsage),
-                        unit: '%',
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: PerformanceChart(
                         title: 'MEMORY USAGE OVER TIME',
                         data: resourceStats.historicalMemoryUsage,
                         lineColor: AppTheme.primaryColor,
-                        unit: 'MB',
+                        unit: 'GB',
+                        maxY: 128,
                       ),
                     ),
                     Padding(
@@ -660,6 +639,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         data: resourceStats.historicalDiskUsage,
                         lineColor: _getUtilizationColor(resourceStats.diskUsage),
                         unit: 'GB',
+                        maxY: 1024,
                       ),
                     ),
                   ],

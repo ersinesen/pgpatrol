@@ -17,7 +17,7 @@ class PerformanceChart extends StatelessWidget {
     required this.title,
     required this.lineColor,
     required this.unit,
-    this.maxY = 100,
+    required this.maxY,
   }) : super(key: key);
 
   @override

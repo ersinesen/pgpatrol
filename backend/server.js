@@ -91,7 +91,7 @@ app.post("/api/test-connection", async (req, res) => {
 // Test a database connection using individual parameters
 app.post("/api/test-connection-params", async (req, res) => {
   try {
-    const { host, port, database, username, password, ssl = true } = req.body;
+    const { host, port, database, username, password, ssl = false } = req.body;
 
     console.log(host, port, database, username, password, ssl);
 
@@ -187,7 +187,7 @@ app.post("/api/connect", async (req, res) => {
       username,
       password,
       name,
-      ssl = true,
+      ssl = false,
     } = req.body;
 
     console.log(
@@ -441,24 +441,17 @@ app.get("/api/resource-stats", async (req, res) => {
 
     // Get memory usage (calculate usage percentage from total memory)
     try {
-      const memoryResult = await pool.query(`
-        SELECT setting::bigint AS total_mem
-        FROM pg_settings
-        WHERE name = 'shared_buffers';
+      
+      const usedMemResult = await pool.query(`
+        SELECT sum(pg_database_size(datname)) AS used_mem
+        FROM pg_database;
       `);
 
-      if (memoryResult.rows.length > 0) {
-        const totalMem = parseInt(memoryResult.rows[0].total_mem, 10);
-        const usedMemResult = await pool.query(`
-          SELECT sum(pg_database_size(datname)) AS used_mem
-          FROM pg_database;
-        `);
-
-        if (usedMemResult.rows.length > 0) {
-          const usedMem = parseInt(usedMemResult.rows[0].used_mem, 10);
-          resourceStats.memoryUsage = totalMem > 0 ? (usedMem / totalMem) * 100 : 0;
-        }
+      if (usedMemResult.rows.length > 0) {
+        const usedMem = parseInt(usedMemResult.rows[0].used_mem, 10);
+        resourceStats.memoryUsage = usedMem / 1024.0;
       }
+    
     } catch (error) {
       console.warn("Error fetching memory stats:", error.message);
     }
