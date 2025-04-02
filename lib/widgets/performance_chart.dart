@@ -73,7 +73,7 @@ class PerformanceChart extends StatelessWidget {
                   majorGridLines: MajorGridLines(width: 0.5, color: gridColor),
                   labelStyle: TextStyle(color: textColor, fontSize: 10),
                 ),
-                series: <ChartSeries>[
+                series: <CartesianSeries<TimeSeriesData, DateTime>>[
                   AreaSeries<TimeSeriesData, DateTime>(
                     dataSource: data,
                     xValueMapper: (TimeSeriesData data, _) => data.time,

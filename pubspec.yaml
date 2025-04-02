@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.5
   postgres: ^2.6.3
-  syncfusion_flutter_charts: ^23.1.44
+  syncfusion_flutter_charts: ^29.1.35
   intl: ^0.18.1
   provider: ^6.1.1
   shared_preferences: ^2.2.2
