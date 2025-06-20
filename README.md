@@ -1,6 +1,6 @@
 # pgpatrol
 
-PostgreSQL monitoring app.
+PostgreSQL monitoring app built with Flutter to support all platforms.
 
 ![Pgpatrol](./pgpatrol.png)
 
@@ -28,13 +28,24 @@ Run
 flutter run -d windows
 ```
 
-Build 
+Build Desktop Exectutable
 
 ```
 flutter build windows
 flutter build windows --release
-
 ```
+
+## Screen Shots
+
+![Screen Shot 1](./screenshots/pgpatrol_ss1.png)
+
+![Screen Shot 2](./screenshots/pgpatrol_ss2.png)
+
+![Screen Shot 3](./screenshots/pgpatrol_ss3.png)
+
+![Screen Shot 4](./screenshots/pgpatrol_ss4.png)
+
+![Screen Shot 5](./screenshots/pgpatrol_ss5.png)
 
 ## Links
 
